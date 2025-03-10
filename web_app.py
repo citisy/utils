@@ -157,7 +157,7 @@ class FlaskOp:
             data = json.loads(data)
             if request_template:
                 data = request_template(**data)
-                data = data.dict()
+                data = data.dict(exclude_none=True)
 
             ret = func(data, **post_kwargs)
 
@@ -182,11 +182,10 @@ class FlaskOp:
 
         @app.get(path, endpoint=path)
         def get():
-            data = request.get_data().decode('utf-8')
-            data = json.loads(data)
+            data = request.args.to_dict()
             if request_template:
                 data = request_template(**data)
-                data = data.dict()
+                data = data.dict(exclude_none=True)
 
             ret = func(data, **get_kwargs)
 

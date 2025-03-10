@@ -860,7 +860,6 @@ class MySqlCacher(BaseCacher):
         self.__dict__.update(kwargs)
 
         self.table = table
-        assert self.table is not None
 
         _escape_table = [chr(x) for x in range(128)]
         _escape_table[0] = "\\0"
@@ -889,13 +888,15 @@ class MySqlCacher(BaseCacher):
             **self.conn_kwargs
         )
 
-    def cache_one(self, obj: dict, allow_duplicates=True, **kwargs):
+    def cache_one(self, obj: dict, allow_duplicates=True, pri_key='id', **kwargs):
         if allow_duplicates or not kwargs:
             last_id = self._add(obj, **kwargs)
 
         else:
-            if self.get_one(**kwargs):
-                last_id = self._update(obj, **kwargs)
+            data = self.get_one(**kwargs)
+            if data:
+                _ = self._update(obj, **kwargs)
+                last_id = data[pri_key]
             else:
                 last_id = self._add(obj, **kwargs)
 

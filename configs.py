@@ -174,7 +174,10 @@ class ConfigObjParse:
                 elif isinstance(v1, list) and isinstance(cur_dic[k], list):
                     v2 = cur_dic[k]
                     for i, (vv1, vv2) in enumerate(zip(v1, v2)):
-                        v1[i] = cur(vv2, vv1)
+                        if isinstance(v1, dict) and isinstance(cur_dic[k], dict):
+                            v1[i] = cur(vv2, vv1)
+                        else:
+                            v1[i] = [vv2, vv1]
 
                 cur_dic[k] = v1
 

@@ -267,12 +267,23 @@ class TritonPythonModel:
 
         # get configs
         # configs can be found in `config.pbtxt`
-        self.model_config = model_config = json.loads(args['model_config'])
+        # args would like that
+        # args = {
+        #     'model_config': {
+        #         "input": [{"name": "", "data_type": "", "format": "", "dims": []}],
+        #         "output": [{"name": "", "data_type": "", "dims": [], }],
+        #         "instance_group": [{"name": "", "kind": "KIND_GPU", "gpus": []}],
+        #     },
+        #     'model_instance_kind': '', 'model_instance_name': '', 'model_instance_device_id': '', 'model_repository': '', 'model_version': '', 'model_name': ''
+        # }
+        self.model_config = json.loads(args['model_config'])
 
-        self.input0_config = pb_utils.get_output_config_by_name(model_config, "INPUT0")
-        self.input0_dtype = pb_utils.triton_string_to_numpy(self.input0_config['data_type'])
-        self.output0_config = pb_utils.get_output_config_by_name(model_config, "OUTPUT0")
-        self.output0_dtype = pb_utils.triton_string_to_numpy(self.output0_config['data_type'])
+        self.input_names = [i['name'] for i in self.model_config['input']]
+        self.input_dtypes = [pb_utils.triton_string_to_numpy(i['data_type']) for i in self.model_config['input']]
+        self.output_names = [i['name'] for i in self.model_config['output']]
+        self.output_dtypes = [pb_utils.triton_string_to_numpy(i['data_type']) for i in self.model_config['output']]
+
+        self.device_id = args['model_instance_device_id']
         ...
 
         # init model
@@ -284,13 +295,13 @@ class TritonPythonModel:
         responses = []
         for request in requests:
             # get inputs
-            in_0 = pb_utils.get_input_tensor_by_name(request, 'INPUT0')
+            in_0 = pb_utils.get_input_tensor_by_name(request, self.input_names[0])
             ...
 
             # get outputs from model inference
             out_0, *outs = self.model(in_0, ...)
 
-            out_tensor_0 = pb_utils.Tensor('OUTPUT0', out_0.astype(self.output0_dtype))
+            out_tensor_0 = pb_utils.Tensor(self.output_names[0], out_0.astype(self.output_dtypes[0]))
             ...
 
             inference_response = pb_utils.InferenceResponse(output_tensors=[out_tensor_0, ...])
