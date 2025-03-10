@@ -65,7 +65,7 @@ def auto_suffix(obj):
 
 
 def find_all_suffixes_files(root_dir, suffixes):
-    return (p for p in Path(root_dir).glob('*') if p.suffix in suffixes)
+    return (p for p in Path(root_dir).glob('*') if p.suffix.lower() in suffixes)
 
 
 class Saver:
