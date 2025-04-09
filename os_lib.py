@@ -10,11 +10,12 @@ import time
 import uuid
 from pathlib import Path
 from typing import List, Iterable
+from zipfile import ZipFile
 
 import cv2
 import numpy as np
 import pandas as pd
-import yaml     # pip install PyYAML
+import yaml  # pip install PyYAML
 
 
 def mk_dir(dir_path):
@@ -65,7 +66,7 @@ def auto_suffix(obj):
 
 
 def find_all_suffixes_files(root_dir, suffixes):
-    return (p for p in Path(root_dir).glob('*') if p.suffix.lower() in suffixes)
+    return (p for p in Path(root_dir).rglob('*') if p.suffix in suffixes)
 
 
 class Saver:
@@ -286,18 +287,19 @@ class Loader:
             suffixes_dict['img']: self.load_img,
             suffixes_dict['npy']: self.load_np_array,
             suffixes_dict['npz']: self.load_np_array,
-            suffixes_dict['excel']: self.load_excel
+            suffixes_dict['excel']: self.load_excel,
+            suffixes_dict['csv']: self.load_csv
         }
 
     def stdout(self, path):
         self.stdout_method(self.stdout_fmt % path)
 
-    def auto_load(self, path: str):
+    def auto_load(self, path: str, **kwargs):
         suffix = Path(path).suffix.lower()
 
         for k, func in self.funcs.items():
             if suffix in k:
-                obj = func(path)
+                obj = func(path, **kwargs)
                 break
         else:
             obj = self.load_bytes(path)
@@ -364,6 +366,11 @@ class Loader:
 
     def load_excel(self, path, **kwargs) -> pd.DataFrame:
         df = pd.read_excel(path, **kwargs)
+        self.stdout(path)
+        return df
+
+    def load_csv(self, path, **kwargs) -> pd.DataFrame:
+        df = pd.read_csv(path, **kwargs)
         self.stdout(path)
         return df
 
@@ -457,18 +464,24 @@ class Loader:
         self.stdout(path)
         return obj
 
-    def load_zip(self, path):
-        from zipfile import ZipFile
-
-        objs = []
+    def load_bytes_from_zip(self, path):
         with ZipFile(path, 'r') as zip_file:
             for fp in zip_file.namelist():
                 if fp.endswith('/'):  # is dir
                     continue
-                objs.append(zip_file.open(fp).read())
+                yield zip_file.open(fp).read()
 
         self.stdout(path)
-        return objs
+
+    def load_images_from_zip(self, path):
+        with ZipFile(path, 'r') as zip_file:
+            for fp in zip_file.namelist():
+                if fp.endswith('/') and fp not in suffixes_dict['img']:  # is dir
+                    continue
+                obj = zip_file.open(fp).read()
+                yield cv2.imdecode(np.frombuffer(obj, dtype=np.uint8), -1)
+
+        self.stdout(path)
 
 
 class BaseCacher:
@@ -988,7 +1001,7 @@ class MySqlCacher(BaseCacher):
 
         return last_id
 
-    def get_one(self, additional_sql='', **kwargs) -> dict:
+    def get_one(self, additional_sql='', convert_to_json=False, **kwargs) -> dict:
         """
         Usage:
             >>> MySqlCacher().get_one(id=0)
@@ -1008,6 +1021,14 @@ class MySqlCacher(BaseCacher):
                     data = dict(zip(fields, row))
                 else:
                     data = {}
+
+        if convert_to_json:
+            for k, v in data.items():
+                if isinstance(v, str):
+                    try:
+                        data[k] = json.loads(v)
+                    except:
+                        pass
 
         return data
 
@@ -1053,7 +1074,7 @@ class PGSQLCacher(MySqlCacher):
 
 
 class MilvusCacher(BaseCacher):
-    def __init__(self, collection_name, **kwargs):
+    def __init__(self, collection_name=None, **kwargs):
         from pymilvus import MilvusClient  # pip install pymilvus
 
         self.client = MilvusClient(**kwargs)

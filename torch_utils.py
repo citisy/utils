@@ -198,8 +198,11 @@ class ModuleManager:
 
     @staticmethod
     def torch_gc():
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
+        try:
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+        except AssertionError as e:
+            print(e)
 
     @staticmethod
     def freeze_module(module: nn.Module, allow_train=False):
@@ -396,11 +399,16 @@ class ModuleManager:
         Args:
             module:
             key (str or nn.Module):
+                same as key of 'include'
             include (List[str or nn.Module]):
             exclude (List[str or nn.Module]):
+                if include is empty, find all the module not in exclude set
+                if include is not empty, find all the module in include set, and then filter the module in the exclude set
             is_last_module:
+                True to only check the last module
             is_return_last_module:
-
+                True to return the module has found.
+                Flase to return the parent of the module has found
         Returns:
             [[finded_module, name, full_name]]
 
@@ -448,6 +456,8 @@ class ModuleManager:
             for k in exclude:
                 if (isinstance(k, str) and k in name) or (not isinstance(k, str) and isinstance(m, k)):
                     flag = False
+                elif not include:
+                    flag = True
 
             return flag
 

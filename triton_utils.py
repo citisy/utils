@@ -70,14 +70,26 @@ class BaseClient:
         self.init()
 
     def _get_model_configs(self, model_name, model_version=None):
-        if not self.model_versions:
-            # note, in some version of triton, it will be got some unknown exceptions when init early
-            # so init when using
+        model_version = model_version or self.model_versions.get(model_name)
+
+        # firstly, try to reinit the model_configs
+        if (model_name, model_version) not in self.model_configs:
+            self.logger.warning(f'Can not get model configs for {model_name = } and {model_version = }, try to reinit the model_configs!')
             self.init()
 
-        model_version = model_version or self.model_versions.get(model_name)
-        assert (model_name, model_version) in self.model_configs, \
-            f'Got {model_name = } and {model_version = }, where the keys is {self.model_configs.keys()}, pls check'
+            model_version = model_version or self.model_versions.get(model_name)
+
+            # secondly, try to load the model, and then reinit the model_configs
+            if (model_name, model_version) not in self.model_configs:
+                self.logger.warning(f'Can not get model configs for {model_name = } and {model_version = }, try to reload the model!')
+                self.load(model_name)
+                self.init()
+
+                model_version = model_version or self.model_versions.get(model_name)
+
+                # finally, raise the error
+                assert (model_name, model_version) in self.model_configs, \
+                    f'Got {model_name = } and {model_version = }, where the keys is {self.model_configs.keys()}, pls check'
 
         model_config = self.model_configs[model_name, model_version]
 
@@ -112,7 +124,10 @@ class BaseClient:
             datatype = output['datatype']
             o = result.as_numpy(name)
             if datatype == 'BYTES':
-                o = o[0].decode('utf-8')
+                if len(o.shape) == 0:
+                    o = o.decode('utf-8')
+                else:
+                    o = [_.decode('utf-8') for _ in o]
             outputs[name] = o
 
         return outputs

@@ -8,8 +8,6 @@ from functools import wraps
 from logging.handlers import TimedRotatingFileHandler
 from typing import Annotated, get_origin
 
-import psutil
-
 from . import os_lib, configs
 
 
@@ -386,6 +384,8 @@ class MemoryInfo:
         rss, 该进程实际使用物理内存（包含共享库占用的全部内存）
         vms, 虚拟内存总量
         """
+        import psutil
+
         pid = os.getpid()
         p = psutil.Process(pid)
         info = p.memory_full_info()
@@ -412,6 +412,7 @@ class MemoryInfo:
         free, 剩余的内存
         used, 已经使用的内存
         """
+        import psutil
         info = dict(psutil.virtual_memory()._asdict())
         if pretty_output:
             for k, v in info.items():
