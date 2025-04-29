@@ -3,6 +3,8 @@ import base64
 import hashlib
 import io
 import json
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -35,6 +37,8 @@ class DataConvert:
             obj = cls.img_array_to_constant(obj)
         elif isinstance(obj, np.ndarray) and obj.dtype != np.uint8:
             obj = cls.np_to_constant(obj)
+        elif isinstance(obj, (bool, int, float)):
+            pass
         else:
             obj = str(obj)
 
@@ -82,12 +86,16 @@ class DataConvert:
         return cv2.imdecode(np.frombuffer(obj, dtype=np.uint8), -1)
 
     @classmethod
-    def image_to_base64(cls, obj: np.ndarray) -> str:
+    def image_to_base64(cls, obj: np.ndarray, add_prefix=False, fmt='png') -> str:
         obj = cls.image_to_bytes(obj)
-        return cls.bytes_to_base64(obj)
+        obj = cls.bytes_to_base64(obj)
+        if add_prefix:
+            obj = f'data:image/{fmt};base64,{obj}'
+        return obj
 
     @classmethod
     def base64_to_image(cls, obj: str) -> np.ndarray:
+        obj = re.sub('data:image/.*;base64,', '', obj)
         obj = cls.base64_to_bytes(obj)
         return cls.bytes_to_image(obj)
 
@@ -221,6 +229,19 @@ class DataConvert:
                 hash_sha256.update(chunk)
 
         return hash_sha256.hexdigest()
+
+    @staticmethod
+    def time_to_timestamp(time_str: str, fmt="%H:%M:%S.%f") -> float:
+        time_obj = datetime.strptime(time_str, fmt)
+
+        total_seconds = time_obj.hour * 3600 + time_obj.minute * 60 + time_obj.second + time_obj.microsecond / 1_000_000.0
+        return total_seconds
+
+    @staticmethod
+    def timestamp_to_time(timestamp: int | float, fmt="%H:%M:%S.%f") -> str:
+        time_obj = datetime.utcfromtimestamp(timestamp)
+        time_str = time_obj.strftime(fmt)
+        return time_str
 
 
 class DataInsConvert:

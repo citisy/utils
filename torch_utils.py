@@ -496,6 +496,8 @@ class WeightsFormats:
         ['TensorFlow Lite', 'tflite', '.tflite', False],
         ['TensorFlow Edge TPU', 'edgetpu', '_edgetpu.tflite', False],
         ['TensorFlow.js', 'tfjs', '_web_model', False],
+        ['Paddle', '-', '.pdparams', True],
+        ['Paddle Inference', '-', '.pdiparams/.pdmodel/.info', True],
     ], columns=['format', 'argument', 'suffix', 'GPU'])
 
     @classmethod
@@ -554,6 +556,7 @@ class Load:
             'TorchScript': cls.from_jit,
             'Safetensors': cls.from_safetensors,
             'Keras': cls.from_h5,
+            'Paddle': cls.from_paddle
         }
         k = WeightsFormats.get_format_from_suffix(save_path)
         return load_dict.get(k)(save_path, **kwargs)
@@ -610,6 +613,13 @@ class Load:
     @staticmethod
     def from_jit(save_path, **kwargs):
         return torch.jit.load(save_path, **kwargs)
+
+    @staticmethod
+    def from_paddle(save_path, **kwargs):
+        import paddle
+        tensors = paddle.load(save_path, **kwargs)
+        tensors = {k: torch.from_numpy(v.numpy()) for k, v in tensors.items()}
+        return tensors
 
 
 class EarlyStopping:
@@ -941,7 +951,7 @@ class Converter:
             'l': cls.linear_weight_from_tf_to_torch,
         }
 
-    convert_tf_types = {
+    torch_tensor_types = {
         'w': 'weight',
         'b': 'bias',
         'g': 'gamma',
@@ -956,7 +966,7 @@ class Converter:
 
         Args:
             state_dict (OrderedDict | dict):
-            key_types (list): see `convert_tf_types`
+            key_types (list): see `torch_tensor_types`
             value_types (list): only work when key_type is 'w',see `make_convert_tf_funcs`
 
         Examples
@@ -982,12 +992,55 @@ class Converter:
         convert_tf_funcs = cls.make_convert_tf_funcs()
 
         for i, (k, v) in enumerate(state_dict.items()):
+            # convert key
             tmp = re.split(r'[/\.]', k)
             if len(tmp) > 1:
                 suffix = tmp[-1]
-                suffix = cls.convert_tf_types.get(key_types[i], suffix)
-                k = '.'.join(tmp[:-1]) + '.' + suffix
+                new_suffix = cls.torch_tensor_types.get(key_types[i], suffix)
+                k = '.'.join(tmp[:-1]) + '.' + new_suffix
 
+            # convert value
+            if key_types[i] == 'w' and value_types[i] in convert_tf_funcs:
+                v = convert_tf_funcs[value_types[i]](v)
+            d[k] = v
+
+        return d
+
+    @classmethod
+    def make_convert_paddle_funcs(cls):
+        return {
+            # 'c': cls.conv_weight_from_paddle_to_torch,
+            'l': cls.linear_weight_from_paddle_to_torch,
+        }
+
+    # @staticmethod
+    # def conv_weight_from_paddle_to_torch(weight):
+    #     """(n, c, w, h) -> (n, c, h, w)"""
+    #     return weight.permute(0, 1, 3, 2)
+
+    @staticmethod
+    def linear_weight_from_paddle_to_torch(weight):
+        return weight.T
+
+    @classmethod
+    def tensors_from_paddle_to_torch(cls, state_dict, key_types=None, value_types=None) -> OrderedDict:
+        key_types = key_types or [''] * len(state_dict)
+        value_types = value_types or [''] * len(state_dict)
+
+        assert len(key_types) == len(state_dict)
+        assert len(value_types) == len(state_dict)
+
+        d = OrderedDict()
+        convert_tf_funcs = cls.make_convert_paddle_funcs()
+
+        for i, (k, v) in enumerate(state_dict.items()):
+            # convert key
+            if key_types[i] == 'nm':
+                k = k.replace('._mean', '.running_mean')
+            elif key_types[i] == 'nv':
+                k = k.replace('._variance', '.running_var')
+
+            # convert value
             if key_types[i] == 'w' and value_types[i] in convert_tf_funcs:
                 v = convert_tf_funcs[value_types[i]](v)
             d[k] = v

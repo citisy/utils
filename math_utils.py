@@ -153,3 +153,21 @@ def transpose(x):
 
     """
     return list(zip(*x))
+
+
+def make_divisible(v: float, divisor: int, min_value=None) -> int:
+    """ensures that all layers have a channel number that is divisible by divisor
+
+    Usage:
+        >>> make_divisible(8, 8)
+        8
+        >>> make_divisible(9, 8)
+        16
+    """
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    # Make sure that round down does not go down by more than 10%.
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v

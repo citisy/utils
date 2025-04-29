@@ -10,6 +10,7 @@ import tritonclient.grpc
 import tritonclient.http
 
 from . import converter, log_utils
+from functools import partial
 
 # https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/model_configuration.html#datatypes
 datatypes = {
@@ -109,6 +110,9 @@ class BaseClient:
             else:
                 i = np.array([i])
 
+        elif isinstance(i, list):
+            i = np.array(i)
+
         dtype = datatypes['API'][datatypes['Config'].index(dtype)]
         return i, dtype
 
@@ -164,7 +168,7 @@ class HttpClient(BaseClient):
         model_info = self.client.get_model_repository_index()
         self._init(model_info)
 
-    def async_infer(self, *inputs: Optional['np.ndarray'], model_name, model_version=None):
+    def async_infer(self, *inputs: Any, model_name, model_version=None):
         model_version, model_config = self._get_model_configs(model_name, model_version)
 
         _inputs = []
@@ -196,6 +200,29 @@ class HttpClient(BaseClient):
         return outputs
 
     def generate(self, *inputs: Any, model_name, model_version=None):
+        model_version, model_config = self._get_model_configs(model_name, model_version)
+
+        if model_version:
+            model_version = f'/versions/{model_version}'
+        else:
+            model_version = ''
+
+        url = f'http://{self.url}/v2/models/{model_name}{model_version}/generate'
+
+        _inputs = {}
+        for cfg, i in zip(model_config['input'], inputs):
+            _inputs[cfg['name']] = converter.DataConvert.custom_to_constant(i)
+
+        _inputs = json.dumps(_inputs, ensure_ascii=False)
+        r = requests.post(url, data=_inputs)
+        result = r.json()
+        outputs = {}
+        for output_config in model_config['output']:
+            name = output_config['name']
+            outputs[name] = result[name]
+        return outputs
+
+    def generate_stream(self, *inputs: Any, model_name, model_version=None):
         """official http triton client do not support generate endpoint called
         see https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2450/user-guide/docs/protocol/extension_generate.html"""
         model_version, model_config = self._get_model_configs(model_name, model_version)
@@ -220,8 +247,12 @@ class HttpClient(BaseClient):
                 r = re.search(r'^data: (.*)$', data)
                 if r:
                     data = r.group(1)
-                    data = json.loads(data)
-                    yield data
+                    result = json.loads(data)
+                    outputs = {}
+                    for output_config in model_config['output']:
+                        name = output_config['name']
+                        outputs[name] = result[name]
+                    yield outputs
 
 
 class GrpcClient(BaseClient):
@@ -253,11 +284,7 @@ class GrpcClient(BaseClient):
 
         total_outputs = []
 
-        def _callback(result: tritonclient.grpc.InferResult, error):
-            outputs = self._parse_output(result)
-            total_outputs.append(outputs)
-
-        self.client.start_stream(callback or _callback)
+        self.client.start_stream(partial(callback or self.stream_callback, total_outputs=total_outputs))
         self.client.async_stream_infer(
             model_name=model_name,
             model_version=model_version,
@@ -266,7 +293,23 @@ class GrpcClient(BaseClient):
         )
 
         self.client.stop_stream()
-        return total_outputs
+        outputs = {}
+        for output_config in model_config['output']:
+            name = output_config['name']
+            output = [a for o in total_outputs for a in o[name]]
+            if output_config['data_type'] == 'TYPE_STRING':
+                output = ''.join(output)
+            outputs[name] = output
+        return outputs
+
+    def stream_callback(self, result: tritonclient.grpc.InferResult, error, total_outputs=[]):
+        if error is not None:
+            raise Exception(error)
+        outputs = self._parse_output(result)
+        total_outputs.append(outputs)
+
+    def generate_stream(self, *inputs: Any, model_name, model_version=None, callback=None):
+        raise NotImplementedError
 
 
 class TritonPythonModel:

@@ -12,7 +12,7 @@ class BaseApp:
     def from_configs(cls, configs: dict, app_configs=dict()):
         """
         configs:
-            {path1: {path2: router_kwargs}}
+            {router_path: {api_path: router_kwargs}}
         router_kwargs:
             app_func
             method
@@ -23,23 +23,23 @@ class BaseApp:
         """
         app = cls.create_app(**app_configs)
 
-        for path1, cfg in configs.items():
+        for router_path, cfg in configs.items():
             sub_app = cls.create_sub_app()
-            for path2, router_kwargs in cfg.items():
+            for api_path, router_kwargs in cfg.items():
                 if 'app_func' in router_kwargs:
                     app_func = router_kwargs.get('app_func')
                     app_func = converter.DataInsConvert.str_to_instance(app_func)
-                    app_func(sub_app, path2, **router_kwargs)
+                    app_func(sub_app, router_path, api_path, **router_kwargs)
                 else:
                     method = router_kwargs.get('method', 'post').lower()
                     if method == 'post':
-                        cls.register_post_router(sub_app, path2, **router_kwargs)
+                        cls.register_post_router(sub_app, router_path, api_path, **router_kwargs)
                     elif method == 'get':
-                        cls.register_get_router(sub_app, path2, **router_kwargs)
+                        cls.register_get_router(sub_app, router_path, api_path, **router_kwargs)
                     else:
                         raise NotImplementedError(f"method {method} not supported")
 
-            app.include_router(sub_app, prefix=path1)
+            cls.mount_app(app, sub_app, router_path)
 
         app = cls.wrap_app(app)
 
@@ -54,11 +54,15 @@ class BaseApp:
         raise NotImplementedError
 
     @classmethod
-    def register_post_router(cls, app, path, **kwargs):
+    def register_post_router(cls, app, router_path, api_path, **kwargs):
         raise NotImplemented
 
     @classmethod
-    def register_get_router(cls, app, path, **kwargs):
+    def register_get_router(cls, app, router_path, api_path, **kwargs):
+        raise NotImplemented
+
+    @classmethod
+    def mount_app(cls, app, sub_app, router_path, **kwargs):
         raise NotImplemented
 
     @classmethod
@@ -92,7 +96,8 @@ class FastapiOp(BaseApp):
     @staticmethod
     def register_post_router(
             app: 'FastAPI' or 'APIRouter',
-            path,
+            router_path,
+            api_path,
             func=None,
             request_template: 'pydantic.BaseModel()' = None,
             response_template: 'pydantic.BaseModel()' = None,
@@ -103,7 +108,7 @@ class FastapiOp(BaseApp):
         request_template = dict if request_template is None else request_template
         response_template = None if response_template is None else response_template
 
-        @app.post(path, response_model=response_template, **method_configs)
+        @app.post(api_path, response_model=response_template, **method_configs)
         def post(data: request_template):
             if isinstance(data, pydantic.BaseModel):
                 data = data.dict(exclude_none=True)
@@ -113,7 +118,8 @@ class FastapiOp(BaseApp):
     @staticmethod
     def register_get_router(
             app: 'FastAPI' or 'APIRouter',
-            path,
+            router_path,
+            api_path,
             func=None,
             request_template: 'pydantic.BaseModel()' = None,
             response_template: 'pydantic.BaseModel()' = None,
@@ -124,7 +130,7 @@ class FastapiOp(BaseApp):
         request_template = dict if request_template is None else request_template
         response_template = None if response_template is None else response_template
 
-        @app.get(path, response_model=response_template, **method_configs)
+        @app.get(api_path, response_model=response_template, **method_configs)
         def get(data: request_template):
             if isinstance(data, pydantic.BaseModel):
                 data = data.dict()
@@ -143,6 +149,10 @@ class FastapiOp(BaseApp):
             allow_headers=["*"],
         )
         return app
+
+    @classmethod
+    def mount_app(cls, app, sub_app, router_path, **kwargs):
+        app.include_router(sub_app, prefix=router_path)
 
 
 class FlaskOp(BaseApp):
@@ -170,7 +180,8 @@ class FlaskOp(BaseApp):
     @staticmethod
     def register_post_router(
             app: 'Flask' or 'Blueprint',
-            path,
+            router_path,
+            api_path,
             func=None,
             request_template: 'pydantic.BaseModel()' = None,
             response_template: 'pydantic.BaseModel()' = None,
@@ -180,7 +191,7 @@ class FlaskOp(BaseApp):
     ):
         from flask import jsonify, request
 
-        @app.post(path, endpoint=path, **method_configs)
+        @app.post(api_path, endpoint=api_path, **method_configs)
         def post():
             data = request.get_data().decode('utf-8')
             data = json.loads(data)
@@ -199,7 +210,8 @@ class FlaskOp(BaseApp):
     @staticmethod
     def register_get_router(
             app: 'Flask' or 'Blueprint',
-            path,
+            router_path,
+            api_path,
             func=None,
             request_template: 'pydantic.BaseModel()' = None,
             response_template: 'pydantic.BaseModel()' = None,
@@ -209,7 +221,7 @@ class FlaskOp(BaseApp):
     ):
         from flask import jsonify, request
 
-        @app.get(path, endpoint=path, **method_configs)
+        @app.get(api_path, endpoint=api_path, **method_configs)
         def get():
             data = request.args.to_dict()
             if request_template:
