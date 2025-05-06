@@ -297,54 +297,8 @@ class MaskBox:
         return bboxes, classes
 
     @staticmethod
-    def masks_to_bboxes(masks, thres=0.5, min_area=400, ignore_class=(), convert_func=None):
-        """generate detection bboxes from masks
-
-        Args:
-            masks:
-            thres:
-            min_area:
-            ignore_class: usually background class
-            convert_func: function to convert the mask
-
-        Returns:
-
-        """
-        num_class = masks.shape[0]
-        bboxes = []
-        classes = []
-
-        for c in range(num_class):
-            if c in ignore_class:
-                continue
-
-            mask = (masks[c] > thres).astype(np.uint8)
-            if convert_func:
-                mask = convert_func(mask)
-
-            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8, ltype=cv2.CV_16U)
-            stats = stats[stats[:, 4] > min_area]
-
-            stats[:, 2:4] = stats[:, :2] + stats[:, 2:4]
-            box = stats[1:, :4]
-            bboxes.append(box)
-            classes.append([c] * len(box))
-
-        return bboxes, classes
-
-    @staticmethod
-    def bboxes_to_mask(image, bboxes, classes, add_edge=False):
-        """generate mask from image with detection bboxes
-
-        Args:
-            image:
-            bboxes:
-            classes:
-            add_edge:
-
-        Returns:
-
-        """
+    def bboxes_to_label_mask(image, bboxes, classes, add_edge=False, edge_cls=255):
+        """generate mask from image with detection bboxes"""
         h, w = image.shape[:2]
         mask = np.zeros((h, w), dtype=image.dtype)
 
@@ -355,12 +309,25 @@ class MaskBox:
         if add_edge:
             for box, cls in zip(bboxes, classes):
                 x1, y1, x2, y2 = box
-                mask[y1:y2, x1 - 1 if x1 > 0 else x1] = 255
-                mask[y1:y2, x2 + 1 if x2 < w else x2] = 255
-                mask[y1 - 1 if y1 > 0 else y1, x1:x2] = 255
-                mask[y2 + 1 if y2 < h else y2, x1:x2] = 255
+                mask[y1:y2, x1 - 1 if x1 > 0 else x1] = edge_cls
+                mask[y1:y2, x2 + 1 if x2 < w else x2] = edge_cls
+                mask[y1 - 1 if y1 > 0 else y1, x1:x2] = edge_cls
+                mask[y2 + 1 if y2 < h else y2, x1:x2] = edge_cls
 
         return mask
+
+    @staticmethod
+    def mask_to_bboxes(mask, min_area=0, convert_func=None):
+        """generate detection bboxes from masks"""
+        if convert_func:
+            mask = convert_func(mask)
+
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8, ltype=cv2.CV_16U)
+        stats = stats[stats[:, 4] > min_area]
+
+        stats[:, 2:4] = stats[:, :2] + stats[:, 2:4]
+        bboxes = stats[1:, :4]
+        return bboxes
 
 
 def fragment_image(image: np.ndarray,
@@ -610,7 +577,7 @@ class GridBox:
     rows: rows of grid lines, must be horizontal
         1-d array with shape of (ny+1, ), gives the x-axis
     points: intersection points of grids lines
-        ((nx+1)*(ny+1), 2), 2 gives (x, y)
+        2-d array with shape of ((nx+1)*(ny+1), 2), 2 gives (x, y)
     cells: bounding boxes of grids
         2-d array with shape of (nx*ny, 4), 4 gives (x1, y1, x2, y2)
     bboxes: bounding boxes of objections
@@ -651,6 +618,23 @@ class GridBox:
     @staticmethod
     def points_to_lines():
         raise NotImplemented
+
+    @staticmethod
+    def points_to_bbox(points):
+        crop_width = int(max(
+            np.linalg.norm(points[0] - points[1]),
+            np.linalg.norm(points[2] - points[3])
+        ))
+        crop_height = int(max(
+            np.linalg.norm(points[0] - points[3]),
+            np.linalg.norm(points[1] - points[2])
+        ))
+        x1 = min(points[:, 0])
+        y1 = min(points[:, 1])
+        x2 = x1 + crop_width
+        y2 = y1 + crop_height
+        bbox = np.array([x1, y1, x2, y2])
+        return bbox
 
     @staticmethod
     def lines_to_cells(cols, rows):
@@ -713,3 +697,37 @@ class GridBox:
         """
         cells = cls.lines_to_cells(cols, rows)
         return cls.bboxes_include_cells(bboxes, cells)
+
+
+class ImageCrop:
+    @staticmethod
+    def bbox_to_rectangle(image, bbox):
+        x1, y1, x2, y2 = bbox
+        image = image[y1:y2, x1:x2]
+        return image
+
+    @staticmethod
+    def points_to_rectangle(image, points):
+        points = points.astype(np.float32)
+        crop_width = int(max(
+            np.linalg.norm(points[0] - points[1]),
+            np.linalg.norm(points[2] - points[3])
+        ))
+        crop_height = int(max(
+            np.linalg.norm(points[0] - points[3]),
+            np.linalg.norm(points[1] - points[2])
+        ))
+        pts_std = np.float32([
+            [0, 0],
+            [crop_width, 0],
+            [crop_width, crop_height],
+            [0, crop_height]
+        ])
+        M = cv2.getPerspectiveTransform(points, pts_std)
+        dst_img = cv2.warpPerspective(
+            image,
+            M, (crop_width, crop_height),
+            borderMode=cv2.BORDER_REPLICATE,
+            flags=cv2.INTER_CUBIC
+        )
+        return dst_img
