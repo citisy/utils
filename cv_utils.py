@@ -244,8 +244,14 @@ class MaskBox:
         3-d array with shape of (c, h, w), falls in [0, 255], c gives the classes
     label_mask: label image, each pixel is a classes
         2-d array with shape of (h, w), falls in [0, +inf)
-    bboxes: bounding boxes of objections
+    bbox: a rectangle bounding box of objection
+        1-d array with shape of (4, ), 4 gives (x1, y1, x2, y2)
+    bboxes: rectangle bounding boxes of objections
         2-d array with shape of (n, 4), 4 gives (x1, y1, x2, y2)
+    points: a polygon bounding box of objection
+        2-d array with shape of (m, 2), 2 gives (x1, y1)
+    segmentations: polygon bounding boxes of objections
+        3-d array with shape of (n, m, 2), 2 gives (x1, y1)
     """
 
     @staticmethod
@@ -318,7 +324,7 @@ class MaskBox:
 
     @staticmethod
     def mask_to_bboxes(mask, min_area=0, convert_func=None):
-        """generate detection bboxes from masks"""
+        """generate detection bboxes from mask"""
         if convert_func:
             mask = convert_func(mask)
 
@@ -328,6 +334,65 @@ class MaskBox:
         stats[:, 2:4] = stats[:, :2] + stats[:, 2:4]
         bboxes = stats[1:, :4]
         return bboxes
+
+    @staticmethod
+    def mask_to_segmentations(mask, min_area=0, unclip_ratio=0.0, convert_func=None, fix_to_4_edges=True):
+        from shapely.geometry import Polygon
+        import pyclipper
+
+        if convert_func:
+            mask = convert_func(mask)
+
+        def get_mini_boxes(contour):
+            bounding_box = cv2.minAreaRect(contour)
+            segmentations = sorted(list(cv2.boxPoints(bounding_box)), key=lambda x: x[0])
+
+            index_1, index_2, index_3, index_4 = 0, 1, 2, 3
+            if segmentations[1][1] > segmentations[0][1]:
+                index_1 = 0
+                index_4 = 1
+            else:
+                index_1 = 1
+                index_4 = 0
+            if segmentations[3][1] > segmentations[2][1]:
+                index_2 = 2
+                index_3 = 3
+            else:
+                index_2 = 3
+                index_3 = 2
+
+            new_segmentations = np.array([
+                segmentations[index_1], segmentations[index_2], segmentations[index_3], segmentations[index_4]
+            ])
+            return new_segmentations, min(bounding_box[1])
+
+        def unclip(points):
+            poly = Polygon(points)
+            distance = poly.area * unclip_ratio / poly.length
+            offset = pyclipper.PyclipperOffset()
+            offset.AddPath(points, pyclipper.JT_ROUND, pyclipper.ET_CLOSEDPOLYGON)
+            expanded = np.array(offset.Execute(distance))
+            return expanded
+
+        outs = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contours = outs[0]
+        points_list = []
+        for contour in contours:
+            points, area = get_mini_boxes(contour)
+            if area < min_area:
+                continue
+
+            points = unclip(points).reshape(-1, 1, 2)
+            points, area = get_mini_boxes(points)
+            if area < min_area + 2:
+                continue
+            points_list.append(points)
+        points_list = np.stack(points_list)     # (n, 4, 2)
+        return points_list
+
+    @staticmethod
+    def segmentations_to_mask(image, segmentations):
+        pass
 
 
 def fragment_image(image: np.ndarray,
@@ -707,7 +772,7 @@ class ImageCrop:
         return image
 
     @staticmethod
-    def points_to_rectangle(image, points):
+    def points_to_polygon(image, points):
         points = points.astype(np.float32)
         crop_width = int(max(
             np.linalg.norm(points[0] - points[1]),
