@@ -616,7 +616,7 @@ class Load:
 
     @staticmethod
     def from_paddle(save_path, **kwargs):
-        import paddle
+        import paddle   # see https://www.paddlepaddle.org.cn/install/quick
         tensors = paddle.load(save_path, **kwargs)
         tensors = {k: torch.from_numpy(v.numpy()) for k, v in tensors.items()}
         return tensors

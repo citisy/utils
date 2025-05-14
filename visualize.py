@@ -36,9 +36,9 @@ class ImageVisualize:
         line_thickness = line_thickness or round(0.001 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
 
         for i in range(len(boxes)):
-            if visual_type == POLYGON:  # polygon: (-1, -1, 2)
-                cv2.polylines(img, [np.array(boxes[i], dtype=int)], isClosed=True, color=colors[i], thickness=line_thickness,
-                              lineType=cv2.LINE_AA)
+            if visual_type == POLYGON:
+                points = np.array(boxes[i], dtype=int)  # polygon: (-1, -1, 2)
+                cv2.polylines(img, [points], isClosed=True, color=colors[i], thickness=line_thickness, lineType=cv2.LINE_AA)
 
             elif visual_type == RECTANGLE:  # rectangle: (-1, 4)
                 xyxy = boxes[i]
@@ -92,7 +92,7 @@ class ImageVisualize:
                 font = ImageFont.truetype(font_path, font_size, encoding="utf-8")
                 cur_x, cur_y = box[0][0] + 3, box[0][1]
                 for c in txt:
-                    char_size = font.getsize(c)
+                    char_size = font.getsize(c)     # only support for Pillow < 9.x
                     draw_right.text((cur_x, cur_y), c, fill=(0, 0, 0), font=font)
                     cur_y += char_size[1]
             else:

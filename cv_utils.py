@@ -303,10 +303,10 @@ class MaskBox:
         return bboxes, classes
 
     @staticmethod
-    def bboxes_to_label_mask(image, bboxes, classes, add_edge=False, edge_cls=255):
+    def bboxes_to_label_mask(image_size, bboxes, classes, add_edge=False, edge_cls=255):
         """generate mask from image with detection bboxes"""
-        h, w = image.shape[:2]
-        mask = np.zeros((h, w), dtype=image.dtype)
+        h, w = image_size
+        mask = np.zeros((h, w), dtype=np.uint8)
 
         for box, cls in zip(bboxes, classes):
             x1, y1, x2, y2 = box
@@ -387,12 +387,18 @@ class MaskBox:
             if area < min_area + 2:
                 continue
             points_list.append(points)
-        points_list = np.stack(points_list)     # (n, 4, 2)
+        points_list = np.stack(points_list)  # (n, 4, 2)
         return points_list
 
     @staticmethod
-    def segmentations_to_mask(image, segmentations):
-        pass
+    def segmentations_to_mask(image_size, segmentations, fill_value=255):
+        if isinstance(image_size, int):
+            image_size = (image_size, image_size)
+        mask = np.zeros(image_size, dtype=np.uint8)
+        for points in segmentations:
+            points = np.array(points, dtype=np.int32)[None]
+            cv2.fillPoly(mask, points, fill_value)
+        return mask
 
 
 def fragment_image(image: np.ndarray,
