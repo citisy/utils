@@ -265,6 +265,23 @@ class MaskBox:
         return cv2.morphologyEx(image, cv2.MORPH_OPEN, k)
 
     @staticmethod
+    def label_mask_to_masks(label_mask, max_class=None, ignore_class=(), fill_value=255):
+        if max_class is None:
+            max_class = np.max(label_mask)
+
+        masks = []
+        for i in range(max_class + 1):
+            if i in ignore_class:
+                continue
+            mask = np.zeros_like(label_mask)
+            mask[label_mask == i] = fill_value
+            masks.append(mask)
+
+        masks = np.stack(masks)
+        return masks
+
+
+    @staticmethod
     def label_mask_to_bboxes(label_mask, ignore_class=(), min_area=400, convert_func=None):
         """generate detection bboxes from label mask
 
@@ -336,7 +353,7 @@ class MaskBox:
         return bboxes
 
     @staticmethod
-    def mask_to_segmentations(mask, min_area=0, unclip_ratio=0.0, convert_func=None, fix_to_4_edges=True):
+    def mask_to_segmentations(mask, min_area=0, unclip_ratio=None, convert_func=None, fix_to_4_edges=True):
         from shapely.geometry import Polygon
         import pyclipper
 
@@ -354,6 +371,7 @@ class MaskBox:
             else:
                 index_1 = 1
                 index_4 = 0
+
             if segmentations[3][1] > segmentations[2][1]:
                 index_2 = 2
                 index_3 = 3
@@ -376,19 +394,22 @@ class MaskBox:
 
         outs = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         contours = outs[0]
-        points_list = []
+        segmentations = []
         for contour in contours:
             points, area = get_mini_boxes(contour)
             if area < min_area:
                 continue
 
-            points = unclip(points).reshape(-1, 1, 2)
-            points, area = get_mini_boxes(points)
-            if area < min_area + 2:
-                continue
-            points_list.append(points)
-        points_list = np.stack(points_list)  # (n, 4, 2)
-        return points_list
+            if unclip_ratio is not None:
+                points = unclip(points).reshape(-1, 1, 2)
+                points, area = get_mini_boxes(points)
+                if area < min_area + 2:
+                    continue
+
+            segmentations.append(points)
+        segmentations = np.stack(segmentations)  # (n, 4, 2)
+        segmentations = segmentations.astype(np.int32)
+        return segmentations
 
     @staticmethod
     def segmentations_to_mask(image_size, segmentations, fill_value=255):
@@ -544,19 +565,19 @@ def splice_image(images, grid=None, overlap_size=None, pad_values=None):
     return image
 
 
-def non_max_suppression(boxes, conf, iou_method, threshold=0.6):
-    """
+def non_max_suppression(boxes, confs, iou_method, threshold=0.6):
+    """nms(non_max_suppression)
 
     Args:
         boxes (np.ndarray): (n_samples， 4), 4 gives x1,y1,x2,y2
-        conf (np.ndarray): (n_samples, )
+        confs (np.ndarray): (n_samples, )
         iou_method (Callable):
         threshold (float): IOU threshold
 
     Returns:
         keep (np.ndarray): 1-dim array, index of detections to keep
     """
-    index = conf.argsort()[::-1]
+    index = confs.argsort()[::-1]
     keep = []
 
     while index.size > 0:
@@ -692,6 +713,7 @@ class GridBox:
 
     @staticmethod
     def points_to_bbox(points):
+        points = np.array(points)
         crop_width = int(max(
             np.linalg.norm(points[0] - points[1]),
             np.linalg.norm(points[2] - points[3])
@@ -706,6 +728,14 @@ class GridBox:
         y2 = y1 + crop_height
         bbox = np.array([x1, y1, x2, y2])
         return bbox
+
+    @classmethod
+    def segmentations_to_bboxes(cls, segmentations):
+        bboxes = []
+        for points in segmentations:
+            bboxes.append(cls.points_to_bbox(points))
+        bboxes = np.stack(bboxes)
+        return bboxes
 
     @staticmethod
     def lines_to_cells(cols, rows):
@@ -770,6 +800,31 @@ class GridBox:
         return cls.bboxes_include_cells(bboxes, cells)
 
 
+class ImagePerspective:
+    @staticmethod
+    def polygon_to_rectangle(src_image, src_points, dst_size):
+        image = ImageCrop.points_to_rectangle(src_image, src_points)
+        image = cv2.resize(image, dst_size)
+        return image
+
+    @staticmethod
+    def rectangle_to_polygon(src_image, dst_image, dst_points):
+        src_points = np.float32([
+            [0, 0],
+            [src_image.shape[1] - 1, 0],
+            [src_image.shape[1] - 1, src_image.shape[0] - 1],
+            [0, src_image.shape[0] - 1]
+        ])
+
+        dst_points = np.float32(dst_points)
+        M = cv2.getPerspectiveTransform(src_points, dst_points)
+        warped_image = cv2.warpPerspective(src_image, M, (dst_image.shape[1], dst_image.shape[0]))
+
+        cv2.fillPoly(dst_image, [dst_points.astype(int)], (0, 0, 0))
+        dst_image = dst_image + warped_image
+        return dst_image
+
+
 class ImageCrop:
     @staticmethod
     def bbox_to_rectangle(image, bbox):
@@ -778,23 +833,24 @@ class ImageCrop:
         return image
 
     @staticmethod
-    def points_to_polygon(image, points):
-        points = points.astype(np.float32)
+    def points_to_rectangle(image, points):
+        src_points = np.array(points)
+        src_points = src_points.astype(np.float32)
         crop_width = int(max(
-            np.linalg.norm(points[0] - points[1]),
-            np.linalg.norm(points[2] - points[3])
+            np.linalg.norm(src_points[0] - src_points[1]),
+            np.linalg.norm(src_points[2] - src_points[3])
         ))
         crop_height = int(max(
-            np.linalg.norm(points[0] - points[3]),
-            np.linalg.norm(points[1] - points[2])
+            np.linalg.norm(src_points[0] - src_points[3]),
+            np.linalg.norm(src_points[1] - src_points[2])
         ))
-        pts_std = np.float32([
+        dst_points = np.float32([
             [0, 0],
             [crop_width, 0],
             [crop_width, crop_height],
             [0, crop_height]
         ])
-        M = cv2.getPerspectiveTransform(points, pts_std)
+        M = cv2.getPerspectiveTransform(src_points, dst_points)
         dst_img = cv2.warpPerspective(
             image,
             M, (crop_width, crop_height),

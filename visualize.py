@@ -16,7 +16,7 @@ RECTANGLE = 2
 
 def get_color_array(idx=None, name=None):
     if idx is not None:
-        name = cmap_list[idx]
+        name = cmap_list[idx % len(cmap_list)]
 
     color_array = list(cmap[name]['array'])
     color_array[0], color_array[2] = color_array[2], color_array[0]  # rgb to bgr
@@ -27,8 +27,8 @@ class ImageVisualize:
     @staticmethod
     def box(img, boxes, visual_type=RECTANGLE, colors=None, line_thickness=None, inplace=False):
         """only bbox
-        boxes: polygon: (-1, -1, 2) or rectangle: (-1, 4)
-        colors: (-1, 3) or (-1, 1)
+        boxes: polygon: (n, k, 2) or rectangle: (n, 4)
+        colors: (n, 3) or (n, 1)
         """
         if not inplace:
             img = img.copy()
@@ -54,7 +54,8 @@ class ImageVisualize:
     def text_box(img, text_boxes, texts, scores=None, drop_score=0.5, colors=None, font_path="utils/excluded/simfang.ttf"):
         """bbox + text, text needs the text area
         use PIL.Image instead of opencv for better chinese font support
-        text_boxes: (-1, -1, 2)
+        text_boxes: (n, k, 2)
+        colors: (n, 3) or (n, 1)
         """
         scores = scores if scores is not None else [1] * len(text_boxes)
         image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
@@ -113,7 +114,8 @@ class ImageVisualize:
     def text(img, text_boxes, texts, scores=None, drop_score=0.5, font_path="utils/excluded/simfang.ttf"):
         """only text, need text area
         use PIL.Image instead of opencv for better chinese font support
-        text_boxes: (-1, 4, 2)
+        text_boxes: (n, 4, 2)
+        colors: (n, 3) or (n, 1)
         """
         scores = scores if scores is not None else [1] * len(text_boxes)
         img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
@@ -159,7 +161,8 @@ class ImageVisualize:
     def label_box(cls, img, boxes, labels, colors=None, line_thickness=None, inplace=False):
         """boxes + label text, text belong to the box, do not need text area specially
         note, do not support Chinese
-        boxes: (-1, 4)
+        boxes: (n, 4)
+        colors: (n, 3) or (n, 1)
         """
         if not inplace:
             img = img.copy()
@@ -202,21 +205,23 @@ class ImageVisualize:
         return img
 
     @staticmethod
-    def block(img, boxes, visual_type=RECTANGLE, colors=None, alpha=1, inplace=False):
-        """color block, filled box
-        boxes: polygon: (-1, -1, 2) or rectangle: (-1, 4)
-        alpha: [0, 1], 1 gives opaque totally
+    def block(img, boxes, visual_type=RECTANGLE, colors=None, alpha=1):
+        """目标块
+        boxes: polygon: (n, -1, 2) or rectangle: (n, 4)
+        alpha: falls in [0, 1], 1 gives opaque totally
+        colors: (n, 3) or (n, 1)
         """
-        if not inplace:
-            img = img.copy()
+        img = img.copy()
         colors = colors or [get_color_array(0)] * len(boxes)
-        boxes = np.array(boxes).astype(int)
 
         for i in range(len(boxes)):
             if visual_type == POLYGON:  # polygon: (-1, -1, 2)
-                cv2.fillPoly(img, [np.array(boxes[i], dtype=int)], color=colors[i], lineType=cv2.LINE_AA)
+                mask = img.copy()
+                cv2.fillPoly(mask, [np.array(boxes[i], dtype=int)], color=colors[i], lineType=cv2.LINE_AA)
+                img = (img * (1 - alpha) + mask * alpha).astype(img.dtype)
 
             elif visual_type == RECTANGLE:  # rectangle: (-1, 4)
+                boxes = np.array(boxes).astype(int)
                 x1, y1, x2, y2 = boxes[i]
                 block = img[y1:y2, x1:x2]
                 img[y1:y2, x1:x2] = (block * (1 - alpha) + (np.zeros_like(block) + colors[i]) * alpha).astype(img.dtype)
@@ -224,6 +229,30 @@ class ImageVisualize:
             else:
                 raise ValueError
 
+        return img
+
+    @staticmethod
+    def mask(img, mask):
+        mask = mask.astype(np.float32)[:, :, None]
+        mask /= 255
+        img = (img * mask).astype(img.dtype)
+        return img
+
+    @staticmethod
+    def label_mask(img, label_mask, max_class=None, colors=None, alpha=0.5, ignore_class=()):
+        if max_class is None:
+            max_class = np.max(label_mask)
+
+        if colors is None:
+            colors = [get_color_array(i) for i in range(max_class + 1)]
+
+        mask = img.copy()
+        for i in range(max_class + 1):
+            if i in ignore_class:
+                continue
+            mask[label_mask == i] = colors[i]
+
+        img = (img * (1 - alpha) + mask * alpha).astype(img.dtype)
         return img
 
 

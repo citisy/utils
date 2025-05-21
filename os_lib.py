@@ -172,6 +172,8 @@ class Saver:
         self.stdout(path)
 
     def save_img(self, obj: np.ndarray, path, **kwargs):
+        # don't save 4 channels image with jpg format!!!
+
         # it will error with chinese path in low version of cv2
         # it has fixed in high version already
         cv2.imencode(Path(path).suffix, obj)[1].tofile(path)
@@ -457,6 +459,23 @@ class Loader:
         if isinstance(obj, str):
             self.stdout(obj)
 
+        return images
+
+    def load_images_from_video(self, path, duration=1.):
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            raise f'{path} is individual file, not a video file!'
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+
+        images = []
+        for i in range(0, total_frames, int(duration * fps)):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+            _, image = cap.read()
+            images.append(image)
+
+        self.stdout(path)
         return images
 
     def load_np_array(self, path):

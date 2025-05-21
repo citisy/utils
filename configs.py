@@ -1,5 +1,6 @@
 """utils for configs, usually used in project startup, function definition, etc."""
 import copy
+import subprocess
 from typing import List
 
 from . import os_lib, converter
@@ -269,6 +270,18 @@ def default(*args):
     for obj in args:
         if obj is not None:
             return obj
+
+
+def execute_cmd(cmd, **run_kwargs):
+    default_kwargs = dict(
+        args=cmd,
+        shell=True,
+        errors='ignore',
+    )
+
+    run_kwargs = ConfigObjParse.merge_dict(default_kwargs, run_kwargs)
+    result = subprocess.run(**run_kwargs)
+    return result
 
 
 class PydanticParse:
