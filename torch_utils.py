@@ -2,6 +2,7 @@
 import copy
 import math
 import re
+import warnings
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, Optional, Any
@@ -314,6 +315,44 @@ class ModuleManager:
             return call_func(*args, **kwargs)
 
     @classmethod
+    def force_gatherable(cls, data, device):
+        """Change object to gatherable in nn.DataParallel recursively
+
+        The difference from to_device() is changing to torch.Tensor if float or int
+        value is found.
+
+        The restriction to the returned value in DataParallel:
+            The object must be
+            - torch.cuda.Tensor
+            - 1 or more dimension. 0-dimension-tensor sends warning.
+            or a list, tuple, dict.
+
+        """
+        if isinstance(data, dict):
+            return {k: cls.force_gatherable(v, device) for k, v in data.items()}
+        # DataParallel can't handle NamedTuple well
+        elif isinstance(data, tuple) and type(data) is not tuple:
+            return type(data)(*[cls.force_gatherable(o, device) for o in data])
+        elif isinstance(data, (list, tuple, set)):
+            return type(data)(cls.force_gatherable(v, device) for v in data)
+        elif isinstance(data, np.ndarray):
+            return cls.force_gatherable(torch.from_numpy(data), device)
+        elif isinstance(data, torch.Tensor):
+            if data.dim() == 0:
+                # To 1-dim array
+                data = data[None]
+            return data.to(device)
+        elif isinstance(data, float):
+            return torch.tensor([data], dtype=torch.float, device=device)
+        elif isinstance(data, int):
+            return torch.tensor([data], dtype=torch.long, device=device)
+        elif data is None:
+            return None
+        else:
+            warnings.warn(f"{type(data)} may not be gatherable by DataParallel")
+            return data
+
+    @classmethod
     def initialize_layers(cls, module, init_gain=0.02, init_type='normal'):
         """trace each module, initialize the variables
         if module has `initialize_layers`, use `module.initialize_layers()` to initialize"""
@@ -523,7 +562,8 @@ class Export:
     def to_torchscript(model, *trace_input, **export_kwargs):
         """note that, dynamic python script change to static c++ script, according to trace the code
         so, such as `if...else...`, 'for...in...`, etc., if trace in a dynamic variable,
-        will cause some unexpectedly bugs"""
+        will cause some unexpectedly bugs
+        recommend to export with cpu device"""
         model.eval()
         with torch.no_grad():
             # warmup, make sure that the model is initialized right

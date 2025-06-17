@@ -8,6 +8,7 @@ import requests
 import tritonclient  # pip install tritonclient[all]
 import tritonclient.grpc
 import tritonclient.http
+from tritonclient.utils import InferenceServerException
 
 from . import converter, log_utils
 from functools import partial
@@ -215,6 +216,8 @@ class HttpClient(BaseClient):
 
         _inputs = json.dumps(_inputs, ensure_ascii=False)
         r = requests.post(url, data=_inputs)
+        if r.status_code != 200:
+            raise InferenceServerException(r.text)
         result = r.json()
         outputs = {}
         for output_config in model_config['output']:

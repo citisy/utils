@@ -277,7 +277,10 @@ class MaskBox:
             mask[label_mask == i] = fill_value
             masks.append(mask)
 
-        masks = np.stack(masks)
+        if masks:
+            masks = np.stack(masks)
+        else:
+            masks = np.zeros((0, label_mask.shape[0], label_mask.shape[1]), dtype=label_mask.dtype)
         return masks
 
 
@@ -734,7 +737,12 @@ class GridBox:
         bboxes = []
         for points in segmentations:
             bboxes.append(cls.points_to_bbox(points))
-        bboxes = np.stack(bboxes)
+
+        if bboxes:
+            bboxes = np.stack(bboxes)
+        else:
+            bboxes = np.zeros((0, 4))
+
         return bboxes
 
     @staticmethod

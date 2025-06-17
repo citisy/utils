@@ -15,7 +15,6 @@ from zipfile import ZipFile
 import cv2
 import numpy as np
 import pandas as pd
-import yaml  # pip install PyYAML
 
 
 def mk_dir(dir_path):
@@ -45,7 +44,9 @@ suffixes_dict = dict(
     word=('.docx', '.doc'),
     pdf=('.pdf',),
     npy=('.npy',),
-    npz=('.npz',)
+    npz=('.npz',),
+    audio=('.wav', '.mp3', '.ogg', '.aac'),
+    video=('.mp4', '.avi', '.mkv', '.flv', '.wmv', '.mov', '.webm'),
 )
 
 
@@ -91,6 +92,7 @@ class Saver:
             suffixes_dict['csv']: self.save_csv,
             suffixes_dict['excel']: self.save_excel
         }
+        self.default_func = self.save_bytes
 
     def stdout(self, path):
         self.stdout_method(self.stdout_fmt % path)
@@ -107,7 +109,7 @@ class Saver:
                 func(obj, path, **kwargs)
                 break
         else:
-            self.save_bytes(obj, path, **kwargs)
+            self.default_func(obj, path, **kwargs)
 
     def save_json(self, obj: dict, path, **kwargs):
         kwargs.setdefault('ensure_ascii', False)
@@ -123,6 +125,8 @@ class Saver:
         self.stdout(path)
 
     def save_yml(self, obj: dict, path, **kwargs):
+        import yaml  # pip install PyYAML
+
         with open(path, 'w') as f:
             yaml.dump(obj, f)
         self.stdout(path)
@@ -164,6 +168,13 @@ class Saver:
     def save_bytes(self, obj: bytes, path, **kwargs):
         with open(path, 'wb') as f:
             f.write(obj)
+
+        self.stdout(path)
+
+    def save_large_file(self, obj: Iterable, path, **kwargs):
+        with open(path, 'ab') as f:
+            for chunk in obj:
+                f.write(chunk)
 
         self.stdout(path)
 
@@ -292,6 +303,7 @@ class Loader:
             suffixes_dict['excel']: self.load_excel,
             suffixes_dict['csv']: self.load_csv
         }
+        self.default_func = self.load_bytes
 
     def stdout(self, path):
         self.stdout_method(self.stdout_fmt % path)
@@ -304,7 +316,7 @@ class Loader:
                 obj = func(path, **kwargs)
                 break
         else:
-            obj = self.load_bytes(path)
+            obj = self.default_func(path)
 
         return obj
 
@@ -324,6 +336,8 @@ class Loader:
         return obj
 
     def load_yaml(self, path) -> dict:
+        import yaml  # pip install PyYAML
+
         obj = yaml.load(open(path, 'rb'), Loader=yaml.Loader)
         self.stdout(path)
 
@@ -399,6 +413,51 @@ class Loader:
         self.stdout(path)
         return img
 
+    def load_audio(self, path, sr: int = 16000, use_gpu=False) -> np.ndarray:
+        """
+
+        Args:
+            path:
+            sr: The sample rate to resample the audio if necessary
+
+        """
+        from subprocess import run
+
+        cmd = (
+            'ffmpeg '
+            '-nostdin '
+            '-threads 0 '
+            f'-i {path} '
+            '-f s16le '
+            '-ac 1 '
+            '-acodec pcm_s16le '
+            f'-ar {sr} '
+            '-'
+        )
+        out = run(cmd, capture_output=True, check=True, shell=True, errors='ignore').stdout
+        return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
+
+    def load_audio_from_pydub(self, path):
+        from pydub import AudioSegment  # pip install pydub
+
+        audio = AudioSegment.from_file(path)
+        self.stdout(path)
+        return audio
+
+    def load_audio_from_torchaudio(self, path):
+        import torchaudio
+
+        audio, sr = torchaudio.load(path)
+        self.stdout(path)
+        return audio, sr
+
+    def load_video_from_torchvision(self, path):
+        import torchvision
+
+        video, audio, info = torchvision.io.read_video(path)
+        self.stdout(path)
+        return video, audio, info
+
     def load_image_from_zipfile(self, path, zip_file):
         from .converter import DataConvert
 
@@ -472,8 +531,9 @@ class Loader:
         images = []
         for i in range(0, total_frames, int(duration * fps)):
             cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-            _, image = cap.read()
-            images.append(image)
+            flag, image = cap.read()
+            if flag:
+                images.append(image)
 
         self.stdout(path)
         return images
@@ -687,7 +747,7 @@ class FileCacher(BaseCacher):
 
     def cache_one(self, obj, _id=None, file_name=None, file_stem=None, **kwargs):
         file_name = self.get_fn(obj, _id, file_name, file_stem)
-        path = f'{self.cache_dir}/{file_name}'
+        path = f'{self.cache_dir.as_posix()}/{file_name}'
         self.delete_over_range(suffix=Path(path).suffix)
         self.saver.auto_save(obj, path)
         return file_name
@@ -699,7 +759,7 @@ class FileCacher(BaseCacher):
         _fns = []
         for obj, _id, file_name, file_stem in zip(objs, _ids, file_names, file_stems):
             file_name = self.get_fn(obj, _id, file_name, file_stem)
-            path = f'{self.cache_dir}/{file_name}'
+            path = f'{self.cache_dir.as_posix()}/{file_name}'
             self.delete_over_range(suffix=Path(path).suffix)
             self.saver.auto_save(obj, path)
             _fns.append(file_name)
@@ -709,7 +769,7 @@ class FileCacher(BaseCacher):
         if not self.max_size:
             return
 
-        caches = [str(_) for _ in self.cache_dir.glob('*')]
+        caches = [str(_) for _ in self.cache_dir.rglob('*')]
 
         # python version > 3.9, use `Path.rglob` directly.
         p = re.compile(suffix)
@@ -910,7 +970,7 @@ class MySqlCacher(BaseCacher):
     @property
     def connection(self):
         # note, each time execute the sql, initialize a new connection, 'cause one connection would use the cache result
-        import pymysql
+        import pymysql  # pip install pymysql
         return pymysql.connect(
             host=self.host,
             port=self.port,
