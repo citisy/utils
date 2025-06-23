@@ -434,7 +434,7 @@ class Loader:
             f'-ar {sr} '
             '-'
         )
-        out = run(cmd, capture_output=True, check=True, shell=True, errors='ignore').stdout
+        out = run(cmd, capture_output=True, check=True, shell=True).stdout
         return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
 
     def load_audio_from_pydub(self, path):
@@ -1166,7 +1166,7 @@ class MilvusCacher(BaseCacher):
     def cache_one(self, obj: dict, **kwargs):
         kwargs.setdefault('collection_name', self.collection_name)
         kwargs.setdefault('data', obj)
-        res = self.client.insert(data=obj, **kwargs)
+        res = self.client.insert(**kwargs)
         return res['ids']
 
     def cache_batch(self, objs: List[dict], **kwargs):
