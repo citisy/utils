@@ -9,10 +9,14 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import List, Iterable
+from typing import Iterable, List
 from zipfile import ZipFile
 
-import cv2
+try:
+    import cv2  # pip install opencv-python-headless
+except:
+    pass
+
 import numpy as np
 import pandas as pd
 
@@ -1037,14 +1041,15 @@ class MySqlCacher(BaseCacher):
         list_columns = []
         list_values = []
 
-        if obj:
-            for k, v in obj.items():
-                list_columns.append(k)
-                list_values.append(v)
-
         for k, v in kwargs.items():
             list_columns.append(k)
             list_values.append(v)
+
+        if obj:
+            for k, v in obj.items():
+                if k not in list_columns:
+                    list_columns.append(k)
+                    list_values.append(v)
 
         columns = ','.join(list_columns)
         values = ''
@@ -1066,9 +1071,11 @@ class MySqlCacher(BaseCacher):
     def _update(self, obj: dict, **kwargs):
         set_statements = self.make_set_statements(obj)
         set_statements = ', '.join(set_statements)
+        assert set_statements, 'obj is empty'
 
         where_conditions = self.make_where_condition(kwargs)
         where_conditions = ' and '.join(where_conditions)
+        assert where_conditions, 'kwargs is empty'
 
         sql = f"UPDATE {self.table} SET {set_statements} WHERE {where_conditions}"
 
@@ -1080,7 +1087,7 @@ class MySqlCacher(BaseCacher):
 
         return last_id
 
-    def get_one(self, additional_sql='', convert_to_json=False, **kwargs) -> dict:
+    def get_one(self, return_keys=(), additional_sql='', convert_to_json=False, **kwargs) -> dict:
         """
         Usage:
             >>> MySqlCacher().get_one(id=0)
@@ -1089,7 +1096,10 @@ class MySqlCacher(BaseCacher):
         """
         where_conditions = self.make_where_condition(kwargs)
         where_conditions = ' and '.join(where_conditions)
-        sql = f"select * from {self.table} where {where_conditions} {additional_sql} limit 1"
+        if not return_keys:
+            return_keys = ('*', )
+        return_keys = ', '.join(return_keys)
+        sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql} limit 1"
 
         with self.connection as connection:
             with connection.cursor() as cursor:
@@ -1111,7 +1121,7 @@ class MySqlCacher(BaseCacher):
 
         return data
 
-    def get_batch(self, size=None, additional_sql='', **kwargs) -> List[dict]:
+    def get_batch(self, size=None, return_keys=(), additional_sql='', **kwargs) -> List[dict]:
         """
         Usage:
             >>> MySqlCacher().get_batch(id=[0, 1])
@@ -1120,7 +1130,10 @@ class MySqlCacher(BaseCacher):
         """
         where_conditions = self.make_where_condition(kwargs)
         where_conditions = ' and '.join(where_conditions)
-        sql = f"select * from {self.table} where {where_conditions} {additional_sql}"
+        if return_keys:
+            return_keys = ('*', )
+        return_keys = ', '.join(return_keys)
+        sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql}"
         if size:
             sql += f' limit {size}'
 
@@ -1166,7 +1179,7 @@ class MilvusCacher(BaseCacher):
     def cache_one(self, obj: dict, **kwargs):
         kwargs.setdefault('collection_name', self.collection_name)
         kwargs.setdefault('data', obj)
-        res = self.client.insert(**kwargs)
+        res = self.client.insert(data=obj, **kwargs)
         return res['ids']
 
     def cache_batch(self, objs: List[dict], **kwargs):
