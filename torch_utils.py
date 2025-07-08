@@ -777,26 +777,16 @@ class Converter:
         """
         if isinstance(data, dict):
             return {k: cls.force_to_tensors(v, device) for k, v in data.items()}
-        # DataParallel can't handle NamedTuple well
-        elif isinstance(data, tuple) and type(data) is not tuple:
-            return type(data)(*[cls.force_to_tensors(o, device) for o in data])
         elif isinstance(data, (list, tuple, set)):
-            return type(data)(cls.force_to_tensors(v, device) for v in data)
+            return torch.tensor(data).to(device)
         elif isinstance(data, np.ndarray):
-            return cls.force_to_tensors(torch.from_numpy(data), device)
+            return torch.from_numpy(data).to(device)
         elif isinstance(data, torch.Tensor):
-            if data.dim() == 0:
-                # To 1-dim array
-                data = data[None]
             return data.to(device)
-        elif isinstance(data, float):
-            return torch.tensor([data], dtype=torch.float, device=device)
-        elif isinstance(data, int):
-            return torch.tensor([data], dtype=torch.long, device=device)
         elif data is None:
             return None
         else:
-            warnings.warn(f"{type(data)} may not be gatherable by DataParallel")
+            warnings.warn(f"{type(data)} may not be converted")
             return data
 
     @staticmethod
