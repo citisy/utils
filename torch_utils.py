@@ -1,6 +1,7 @@
 """utils for providing helper with torch, easy to log, manage your torch modules"""
 import copy
 import math
+import os
 import re
 import warnings
 from collections import OrderedDict
@@ -13,6 +14,20 @@ import torch
 from torch import nn
 
 from . import math_utils
+
+
+def setup_seed(seed=42):
+    """42 is a lucky number"""
+    import random
+    import torch.backends.cudnn as cudnn
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    os.environ["PL_GLOBAL_SEED"] = str(seed)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
 
 
 class ModuleInfo:
@@ -304,10 +319,10 @@ class ModuleManager:
             # prevent to no grad
             if is_first_layer:
                 for arg in args:
-                    if isinstance(arg, torch.Tensor) and arg.dtype.is_floating_point:   # only float tensor has grad
+                    if isinstance(arg, torch.Tensor) and arg.dtype.is_floating_point:  # only float tensor has grad
                         arg.requires_grad_(True)
                 for arg in kwargs.values():
-                    if isinstance(arg, torch.Tensor) and arg.dtype.is_floating_point:   # only float tensor has grad
+                    if isinstance(arg, torch.Tensor) and arg.dtype.is_floating_point:  # only float tensor has grad
                         arg.requires_grad_(True)
             # note, if having kwargs, use `use_reentrant=False`
             return checkpoint(call_func, *args, use_reentrant=False, **kwargs)
@@ -618,7 +633,7 @@ class Load:
 
     @staticmethod
     def from_paddle(save_path, **kwargs):
-        import paddle   # see https://www.paddlepaddle.org.cn/install/quick
+        import paddle  # see https://www.paddlepaddle.org.cn/install/quick
         tensors = paddle.load(save_path, **kwargs)
         tensors = {k: torch.from_numpy(v.numpy()) for k, v in tensors.items()}
         return tensors
@@ -778,15 +793,19 @@ class Converter:
         if isinstance(data, dict):
             return {k: cls.force_to_tensors(v, device) for k, v in data.items()}
         elif isinstance(data, (list, tuple, set)):
-            return torch.tensor(data).to(device)
+            if (
+                    not len(data)
+                    or not isinstance(data[0], (list, tuple, set))
+                    or all(len(o) == len(data[0]) for o in data)
+            ):
+                return torch.tensor(data).to(device)
+            else:
+                return type(data)(cls.force_to_tensors(v, device) for v in data)
         elif isinstance(data, np.ndarray):
             return torch.from_numpy(data).to(device)
         elif isinstance(data, torch.Tensor):
             return data.to(device)
-        elif data is None:
-            return None
         else:
-            warnings.warn(f"{type(data)} may not be converted")
             return data
 
     @staticmethod
