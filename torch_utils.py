@@ -798,7 +798,10 @@ class Converter:
                     or not isinstance(data[0], (list, tuple, set))
                     or all(len(o) == len(data[0]) for o in data)
             ):
-                return torch.tensor(data).to(device)
+                try:
+                    return torch.tensor(data).to(device)
+                except:
+                    return data
             else:
                 return type(data)(cls.force_to_tensors(v, device) for v in data)
         elif isinstance(data, np.ndarray):
