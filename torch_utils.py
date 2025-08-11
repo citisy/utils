@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 from torch import nn
 
-from . import math_utils
+from . import math_utils, os_lib
 
 
 def setup_seed(seed=42):
@@ -566,6 +566,14 @@ class Export:
 
 
 class Load:
+    @classmethod
+    def from_dir(cls, save_dir, suffix, **kwargs):
+        save_paths = os_lib.find_all_suffixes_files(save_dir, [suffix])
+        tensors = OrderedDict()
+        for save_path in save_paths:
+            tensors.update(cls.from_file(save_path))
+        return tensors
+
     @classmethod
     def from_file(cls, save_path, **kwargs):
         load_dict = {

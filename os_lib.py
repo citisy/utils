@@ -989,7 +989,7 @@ class MySqlCacher(BaseCacher):
             last_id = self._add(obj, **kwargs)
 
         else:
-            data = self.get_one(**kwargs)
+            data = self.get_one(return_keys=[pri_key], **kwargs)
             if data:
                 _ = self._update(obj, **kwargs)
                 last_id = data[pri_key]
@@ -1024,6 +1024,8 @@ class MySqlCacher(BaseCacher):
                 values = values[:-1]
                 where_conditions.append(f'{k} in ({values})')
             else:
+                if v is None:
+                    continue
                 v = self.std_str_value(v)
                 where_conditions.append(f'{k}={v}')
 
@@ -1032,8 +1034,10 @@ class MySqlCacher(BaseCacher):
     def make_set_statements(self, obj: dict) -> list:
         set_statements = []
         for k, v in obj.items():
+            if v is None:
+                continue
             v = self.std_value(v)
-            set_statements.append(f'{k}={v}')
+            set_statements.append(f'`{k}`={v}')     # avoid sys key
 
         return set_statements
 
@@ -1051,11 +1055,18 @@ class MySqlCacher(BaseCacher):
                     list_columns.append(k)
                     list_values.append(v)
 
-        columns = ','.join(list_columns)
+        columns = ''
         values = ''
-        for v in list_values:
+
+        for c, v in zip(list_columns, list_values):
+            if v is None:
+                continue
+
             v = self.std_value(v)
+            columns += f'`{c}`,'    # avoid sys key
             values += f'{v},'
+
+        columns = columns[:-1]
         values = values[:-1]
 
         sql = f'INSERT INTO {self.table} ({columns}) VALUES ({values})'
@@ -1091,6 +1102,7 @@ class MySqlCacher(BaseCacher):
         """
         Usage:
             >>> MySqlCacher().get_one(id=0)
+            >>> MySqlCacher().get_batch(id=[0, 1])
             >>> MySqlCacher().get_one(k1='s1', k2='s2')
 
         """
@@ -1099,7 +1111,10 @@ class MySqlCacher(BaseCacher):
         if not return_keys:
             return_keys = ('*', )
         return_keys = ', '.join(return_keys)
-        sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql} limit 1"
+        if where_conditions or additional_sql:
+            sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql} limit 1"
+        else:
+            sql = f"select {return_keys} from {self.table} limit 1"
 
         with self.connection as connection:
             with connection.cursor() as cursor:
@@ -1124,6 +1139,7 @@ class MySqlCacher(BaseCacher):
     def get_batch(self, size=None, return_keys=(), additional_sql='', **kwargs) -> List[dict]:
         """
         Usage:
+            >>> MySqlCacher().get_one(id=0)
             >>> MySqlCacher().get_batch(id=[0, 1])
             >>> MySqlCacher().get_batch(k1=['s1', 's2'], k2=['s3'])
 
@@ -1133,7 +1149,11 @@ class MySqlCacher(BaseCacher):
         if return_keys:
             return_keys = ('*', )
         return_keys = ', '.join(return_keys)
-        sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql}"
+        if where_conditions or additional_sql:
+            sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql}"
+        else:
+            sql = f"select {return_keys} from {self.table}"
+
         if size:
             sql += f' limit {size}'
 
