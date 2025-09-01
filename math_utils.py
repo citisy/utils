@@ -1,4 +1,6 @@
 """utils for mathematical calculation"""
+from typing import List
+
 import numpy as np
 
 
@@ -171,3 +173,35 @@ def make_divisible(v: float, divisor: int, min_value=None) -> int:
     if new_v < 0.9 * v:
         new_v += divisor
     return new_v
+
+
+def gather(k, v, gather_k) -> list:
+    """
+
+    Args:
+        k (list):
+        v (list):
+        gather_k (Any):
+
+    Usage:
+        >>> gather([0, 0, 1, 1, 2], ['a', 'b', 'c', 'd', 'e'], 1)
+        ['c', 'd']
+    """
+    return [v[i] for i in range(len(k)) if k[i] == gather_k]
+
+
+def unique_gather(k, v) -> List[list]:
+    """
+
+    Args:
+        k (list):
+        v (list):
+
+    Usage:
+        >>> gather([0, 0, 1, 1, 2], ['a', 'b', 'c', 'd', 'e'], 1)
+        [['a', 'b'], ['c', 'd'], ['e']]
+    """
+    outputs = []
+    for gather_k in np.unique(k):
+        outputs.append(gather(k, v, gather_k))
+    return outputs
