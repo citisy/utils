@@ -71,6 +71,12 @@ def auto_suffix(obj):
 
 
 def find_all_suffixes_files(root_dir, suffixes):
+    """
+    Args:
+        root_dir:
+        suffixes (List[str]): ['.xxx']
+
+    """
     return (p for p in Path(root_dir).rglob('*') if p.suffix in suffixes)
 
 
@@ -418,7 +424,7 @@ class Loader:
         return img
 
     def load_audio(self, path, sr: int = 16000, use_gpu=False) -> np.ndarray:
-        """
+        """install ffmpeg first
 
         Args:
             path:
@@ -431,7 +437,7 @@ class Loader:
             'ffmpeg '
             '-nostdin '
             '-threads 0 '
-            f'-i {path} '
+            f'-i "{path}" '
             '-f s16le '
             '-ac 1 '
             '-acodec pcm_s16le '
@@ -448,10 +454,10 @@ class Loader:
         self.stdout(path)
         return audio
 
-    def load_audio_from_torchaudio(self, path):
+    def load_audio_from_torchaudio(self, path, **kwargs):
         import torchaudio
 
-        audio, sr = torchaudio.load(path)
+        audio, sr = torchaudio.load(path, **kwargs)
         self.stdout(path)
         return audio, sr
 
@@ -1037,7 +1043,7 @@ class MySqlCacher(BaseCacher):
             if v is None:
                 continue
             v = self.std_value(v)
-            set_statements.append(f'`{k}`={v}')     # avoid sys key
+            set_statements.append(f'`{k}`={v}')  # avoid sys key
 
         return set_statements
 
@@ -1063,7 +1069,7 @@ class MySqlCacher(BaseCacher):
                 continue
 
             v = self.std_value(v)
-            columns += f'`{c}`,'    # avoid sys key
+            columns += f'`{c}`,'  # avoid sys key
             values += f'{v},'
 
         columns = columns[:-1]
@@ -1109,7 +1115,7 @@ class MySqlCacher(BaseCacher):
         where_conditions = self.make_where_condition(kwargs)
         where_conditions = ' and '.join(where_conditions)
         if not return_keys:
-            return_keys = ('*', )
+            return_keys = ('*',)
         return_keys = ', '.join(return_keys)
         if where_conditions or additional_sql:
             sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql} limit 1"
@@ -1146,8 +1152,8 @@ class MySqlCacher(BaseCacher):
         """
         where_conditions = self.make_where_condition(kwargs)
         where_conditions = ' and '.join(where_conditions)
-        if return_keys:
-            return_keys = ('*', )
+        if not return_keys:
+            return_keys = ('*',)
         return_keys = ', '.join(return_keys)
         if where_conditions or additional_sql:
             sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql}"
@@ -1199,7 +1205,7 @@ class MilvusCacher(BaseCacher):
     def cache_one(self, obj: dict, **kwargs):
         kwargs.setdefault('collection_name', self.collection_name)
         kwargs.setdefault('data', obj)
-        res = self.client.insert(data=obj, **kwargs)
+        res = self.client.insert(**kwargs)
         return res['ids']
 
     def cache_batch(self, objs: List[dict], **kwargs):
