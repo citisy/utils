@@ -643,10 +643,12 @@ class Cacher(BaseCacher):
 
 
 class MemoryCacher(BaseCacher):
-    def __init__(self, max_size=None,
-                 verbose=True, stdout_method=print,
-                 **saver_kwargs
-                 ):
+    def __init__(
+            self, max_size=None,
+            verbose=True, stdout_method=print,
+            **kwargs
+    ):
+        self.__dict__.update(kwargs)
         self.max_size = max_size
         self.verbose = verbose
         self.stdout_method = stdout_method if verbose else FakeIo()
@@ -732,9 +734,12 @@ class MemoryCacher(BaseCacher):
 
 
 class FileCacher(BaseCacher):
-    def __init__(self, cache_dir=None, max_size=None,
-                 verbose=True, stdout_method=print,
-                 ):
+    def __init__(
+            self, cache_dir=None, max_size=None,
+            verbose=True, stdout_method=print,
+            **kwargs
+    ):
+        self.__dict__.update(kwargs)
         mk_dir(cache_dir)
         self.cache_dir = Path(cache_dir)
         self.max_size = max_size
@@ -758,6 +763,8 @@ class FileCacher(BaseCacher):
     def cache_one(self, obj, _id=None, file_name=None, file_stem=None, **kwargs):
         file_name = self.get_fn(obj, _id, file_name, file_stem)
         path = f'{self.cache_dir.as_posix()}/{file_name}'
+        # note, delete first, after cached, the total size will be larger than the max size
+        # if delete after, if the cached file is large than max size, it will be deleted any way
         self.delete_over_range(suffix=Path(path).suffix)
         self.saver.auto_save(obj, path)
         return file_name
@@ -793,14 +800,20 @@ class FileCacher(BaseCacher):
                 ctime = [os.path.getctime(fp) for fp in caches]
                 min_ctime = min(ctime)
                 old_path = caches[ctime.index(min_ctime)]
-                os.remove(old_path)
-                self.stdout_method(self.delete_stdout_fmt % old_path)
-                return old_path
+                return self.delete_one(file_name=Path(old_path).name)
 
             except FileNotFoundError:
                 # todo: if it occur, number of file would be greater than max_size
                 self.stdout_method('Two process thread were crashed while deleting file possibly')
                 return
+
+    def delete_one(self, _id=None, file_name=None, file_stem=None, **kwargs):
+        file_name = self.get_fn(None, _id, file_name, file_stem)
+        path = f'{self.cache_dir.as_posix()}/{file_name}'
+        if os.path.exists(path):
+            os.remove(path)
+            self.stdout_method(self.delete_stdout_fmt % path)
+        return path
 
     def get_one(self, _id=None, file_name=None, **kwargs):
         file_name = _id or file_name
@@ -887,9 +900,11 @@ class MongoDBCacher(BaseCacher):
 
 
 class RedisCacher(BaseCacher):
-    def __init__(self, host='127.0.0.1', port=6379, db=0,
-                 max_size=None, verbose=True, stdout_method=print,
-                 **redis_kwargs) -> None:
+    def __init__(
+            self, host='127.0.0.1', port=6379, db=0,
+            max_size=None, verbose=True, stdout_method=print,
+            **redis_kwargs
+    ) -> None:
         import redis
 
         self.client = redis.Redis(host=host, port=port, db=db, **redis_kwargs)
@@ -953,15 +968,13 @@ class MySqlCacher(BaseCacher):
     password = None
     database = None
     conn_kwargs = {}
+    table = None
+    max_size = None
+    verbose = True
+    stdout_method = print
 
-    def __init__(
-            self, table=None,
-            max_size=None, verbose=True, stdout_method=print,
-            **kwargs
-    ):
+    def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
-
-        self.table = table
 
         _escape_table = [chr(x) for x in range(128)]
         _escape_table[0] = "\\0"
@@ -973,13 +986,11 @@ class MySqlCacher(BaseCacher):
         _escape_table[ord("'")] = "\\'"
         self.escape_table = _escape_table
 
-        self.max_size = max_size
-        self.verbose = verbose
-        self.stdout_method = stdout_method if verbose else FakeIo()
+        self.stdout_method = self.stdout_method if self.verbose else FakeIo()
 
     @property
     def connection(self):
-        # note, each time execute the sql, initialize a new connection, 'cause one connection would use the cache result
+        # note, each time execute the sql, initialize a new connection, 'cause the same connections would use the same cache result
         import pymysql  # pip install pymysql
         return pymysql.connect(
             host=self.host,
@@ -1075,13 +1086,13 @@ class MySqlCacher(BaseCacher):
         columns = columns[:-1]
         values = values[:-1]
 
-        sql = f'INSERT INTO {self.table} ({columns}) VALUES ({values})'
+        sql = f'INSERT INTO `{self.table}` ({columns}) VALUES ({values})'
 
         with self.connection as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(sql)
-                last_id = cursor.lastrowid
-                connection.commit()
+            cursor = connection.cursor()
+            cursor.execute(sql)
+            last_id = cursor.lastrowid
+            connection.commit()
 
         return last_id
 
@@ -1094,15 +1105,41 @@ class MySqlCacher(BaseCacher):
         where_conditions = ' and '.join(where_conditions)
         assert where_conditions, 'kwargs is empty'
 
-        sql = f"UPDATE {self.table} SET {set_statements} WHERE {where_conditions}"
+        sql = f"UPDATE `{self.table}` SET {set_statements} WHERE {where_conditions}"
 
         with self.connection as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(sql)
-                last_id = cursor.lastrowid
-                connection.commit()
+            cursor = connection.cursor()
+            cursor.execute(sql)
+            last_id = cursor.lastrowid
+            connection.commit()
 
         return last_id
+
+    def make_query_sql(self, size=None, return_keys=(), additional_sql='', **kwargs):
+        where_conditions = self.make_where_condition(kwargs)
+        where_conditions = ' and '.join(where_conditions)
+        if not return_keys:
+            return_keys = ('*',)
+        return_keys = ', '.join(return_keys)
+        if where_conditions or additional_sql:
+            sql = f"select {return_keys} from `{self.table}` where {where_conditions} {additional_sql}"
+        else:
+            sql = f"select {return_keys} from `{self.table}`"
+
+        if size:
+            sql += f' limit {size}'
+
+        return sql
+
+    def convert_to_json(self, data):
+        for k, v in data.items():
+            if isinstance(v, str):
+                try:
+                    data[k] = json.loads(v)
+                except:
+                    pass
+
+        return data
 
     def get_one(self, return_keys=(), additional_sql='', convert_to_json=False, **kwargs) -> dict:
         """
@@ -1112,37 +1149,24 @@ class MySqlCacher(BaseCacher):
             >>> MySqlCacher().get_one(k1='s1', k2='s2')
 
         """
-        where_conditions = self.make_where_condition(kwargs)
-        where_conditions = ' and '.join(where_conditions)
-        if not return_keys:
-            return_keys = ('*',)
-        return_keys = ', '.join(return_keys)
-        if where_conditions or additional_sql:
-            sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql} limit 1"
-        else:
-            sql = f"select {return_keys} from {self.table} limit 1"
+        sql = self.make_query_sql(size=1, return_keys=return_keys, additional_sql=additional_sql, **kwargs)
 
         with self.connection as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(sql)
-                row = cursor.fetchone()
-                if row:
-                    fields = [i[0] for i in cursor.description]
-                    data = dict(zip(fields, row))
-                else:
-                    data = {}
+            cursor = connection.cursor()
+            cursor.execute(sql)
+            row = cursor.fetchone()
+            if row:
+                fields = [i[0] for i in cursor.description]
+                data = dict(zip(fields, row))
+            else:
+                data = {}
 
         if convert_to_json:
-            for k, v in data.items():
-                if isinstance(v, str):
-                    try:
-                        data[k] = json.loads(v)
-                    except:
-                        pass
+            self.convert_to_json(data)
 
         return data
 
-    def get_batch(self, size=None, return_keys=(), additional_sql='', **kwargs) -> List[dict]:
+    def get_batch(self, size=None, return_keys=(), additional_sql='', convert_to_json=False, **kwargs) -> List[dict]:
         """
         Usage:
             >>> MySqlCacher().get_one(id=0)
@@ -1150,27 +1174,31 @@ class MySqlCacher(BaseCacher):
             >>> MySqlCacher().get_batch(k1=['s1', 's2'], k2=['s3'])
 
         """
-        where_conditions = self.make_where_condition(kwargs)
-        where_conditions = ' and '.join(where_conditions)
-        if not return_keys:
-            return_keys = ('*',)
-        return_keys = ', '.join(return_keys)
-        if where_conditions or additional_sql:
-            sql = f"select {return_keys} from {self.table} where {where_conditions} {additional_sql}"
-        else:
-            sql = f"select {return_keys} from {self.table}"
-
-        if size:
-            sql += f' limit {size}'
+        sql = self.make_query_sql(size=size, return_keys=return_keys, additional_sql=additional_sql, **kwargs)
 
         with self.connection as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(sql)
-                result = cursor.fetchall()
-                fields = [i[0] for i in cursor.description]
-                data = [dict(zip(fields, row)) for row in result]
+            cursor = connection.cursor()
+            cursor.execute(sql)
+            result = cursor.fetchall()
+            fields = [i[0] for i in cursor.description]
+            data = [dict(zip(fields, row)) for row in result]
+
+        if convert_to_json:
+            for d in data:
+                self.convert_to_json(d)
 
         return data
+
+    def delete_one(self, **kwargs):
+        where_conditions = self.make_where_condition(kwargs)
+        where_conditions = ' and '.join(where_conditions)
+        assert where_conditions, 'kwargs is empty'
+        sql = f"DELETE FROM `{self.table}` WHERE {where_conditions}"
+
+        with self.connection as connection:
+            cursor = connection.cursor()
+            cursor.execute(sql)
+            connection.commit()
 
 
 class PGSQLCacher(MySqlCacher):
@@ -1189,6 +1217,17 @@ class PGSQLCacher(MySqlCacher):
         )
 
         return conn
+
+
+class SqliteCacher(MySqlCacher):
+    @property
+    def connection(self):
+        # note, each time execute the sql, initialize a new connection, 'cause one connection would use the cache result
+        import sqlite3
+        return sqlite3.connect(
+            database=self.database,
+            **self.conn_kwargs
+        )
 
 
 class MilvusCacher(BaseCacher):

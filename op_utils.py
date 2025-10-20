@@ -80,7 +80,8 @@ class Retry:
     def add_try(
             self,
             error_message='',
-            err_type=(ConnectionError, TimeoutError)
+            err_type=(ConnectionError, TimeoutError),
+            raise_type=type(None)
     ):
         def wrap2(func):
             @wraps(func)
@@ -90,6 +91,9 @@ class Retry:
                         return func(*args, **kwargs)
 
                     except err_type as e:
+                        if isinstance(e, raise_type):
+                            raise e
+
                         if i >= self.count - 1:
                             raise e
 
@@ -138,8 +142,8 @@ class RegisterTables:
 
         return wrap
 
-    def get(self, key, table_name='default', default=None):
-        return getattr(self, table_name).get(key, default)
+    def get(self, key, table_name='default'):
+        return getattr(self, table_name)[key]
 
     def __repr__(self):
         return str(self.__dict__)

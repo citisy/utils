@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 import cv2
 import numpy as np
@@ -59,7 +59,7 @@ class DataConvert:
 
     @staticmethod
     def np_to_constant(obj: np.ndarray):
-        if obj.size == 1:
+        if len(obj.shape) == 1 and obj.size == 1:
             if isinstance(obj, (np.float32, np.float64)):
                 obj = float(obj)
             elif isinstance(obj, (np.int32, np.int64)):
@@ -196,6 +196,8 @@ class DataConvert:
             return cls.dict_to_md5(obj)
         elif isinstance(obj, Path):
             return cls.file_to_md5(obj)
+        elif isinstance(obj, Iterable):
+            return cls.large_bytes_to_md5(obj)
         else:
             return cls.str_to_md5(str(obj))
 
@@ -218,6 +220,21 @@ class DataConvert:
     def file_to_md5(cls, obj: str or Path):
         with open(obj, 'rb') as f:
             return cls.bytes_to_md5(f.read())
+
+    @classmethod
+    def large_file_to_md5(cls, obj: str or Path, chunk_size=1024 * 8):
+        md5_hash = hashlib.md5()
+        with open(obj, "rb") as f:
+            while chunk := f.read(chunk_size):
+                md5_hash.update(chunk)
+        return md5_hash.hexdigest()
+
+    @classmethod
+    def large_bytes_to_md5(cls, obj: Iterable[bytes]):
+        md5_hash = hashlib.md5()
+        for chunk in obj:
+            md5_hash.update(chunk)
+        return md5_hash.hexdigest()
 
     @staticmethod
     def file_to_sha256(obj: str or Path, chunk_size=1024 * 1024):
