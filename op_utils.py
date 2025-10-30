@@ -142,8 +142,8 @@ class RegisterTables:
 
         return wrap
 
-    def get(self, key, table_name='default'):
-        return getattr(self, table_name)[key]
+    def get(self, key, default=None, table_name='default'):
+        return getattr(self, table_name).get(key, default)
 
     def __repr__(self):
         return str(self.__dict__)

@@ -205,9 +205,17 @@ class DataConvert:
     def bytes_to_md5(obj: bytes):
         return hashlib.md5(obj).hexdigest()
 
+    @staticmethod
+    def bytes_to_sha256(obj: bytes):
+        return hashlib.sha256(obj).hexdigest()
+
     @classmethod
     def str_to_md5(cls, obj: str):
         return cls.bytes_to_md5(obj.encode(encoding='utf8'))
+
+    @classmethod
+    def str_to_sha256(cls, obj: str):
+        return cls.bytes_to_sha256(obj.encode(encoding='utf8'))
 
     @classmethod
     def dict_to_md5(cls, obj: dict, sort=False):
