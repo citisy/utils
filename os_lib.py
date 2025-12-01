@@ -461,12 +461,38 @@ class Loader:
         self.stdout(path)
         return audio, sr
 
-    def load_video_from_torchvision(self, path):
+    def load_audio_from_decord(self, path, pts=None, num_pts=None, **kwargs):
+        import decord
+        ar = decord.AudioReader(path, **kwargs)
+        if pts is None:
+            total_pts = ar.shape[-1]
+            if num_pts:
+                pts = np.linspace(0, total_pts - 1, num_pts)
+            else:
+                pts = range(total_pts)
+        frames = ar.get_batch(pts)
+        audio = frames.asnumpy()
+        return audio, ar.sample_rate
+
+    def load_video_audio_from_torchvision(self, path, **kwargs):
         import torchvision
 
-        video, audio, info = torchvision.io.read_video(path)
+        video, audio, info = torchvision.io.read_video(path, **kwargs)
         self.stdout(path)
         return video, audio, info
+
+    def load_video_from_decord(self, path, device='cpu', pts=None, num_pts=None, **kwargs):
+        import decord   # pip install decord
+
+        vr = decord.VideoReader(path, ctx=decord.cpu(0) if device == 'cpu' else decord.gpu(device), **kwargs)
+        if pts is None:
+            total_pts = len(vr)
+            if num_pts:
+                pts = np.linspace(0, total_pts - 1, num_pts)
+            else:
+                pts = range(total_pts)
+        frames = vr.get_batch(pts)
+        return frames.asnumpy()
 
     def load_image_from_zipfile(self, path, zip_file):
         from .converter import DataConvert

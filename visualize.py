@@ -3,9 +3,11 @@ import inspect
 import re
 from typing import List
 
+import PIL
 import cv2
 import numpy as np
-from PIL import ImageFont, ImageDraw, Image
+from PIL import Image, ImageDraw, ImageFont
+from packaging import version
 
 from .excluded.cmap import cmap, terminal_cmap
 
@@ -93,7 +95,7 @@ class ImageVisualize:
                 font = ImageFont.truetype(font_path, font_size, encoding="utf-8")
                 cur_x, cur_y = box[0][0] + 3, box[0][1]
                 for c in txt:
-                    char_size = font.getsize(c)     # only support for Pillow < 9.x
+                    char_size = font.getsize(c) if version.parse(PIL.__version__) < version.parse("9") else font.getbbox(c)
                     draw_right.text((cur_x, cur_y), c, fill=(0, 0, 0), font=font)
                     cur_y += char_size[1]
             else:
@@ -140,7 +142,7 @@ class ImageVisualize:
                 cur_x, cur_y = box[0][0] + 3, box[0][1]
 
                 for c in txt:
-                    char_size = font.getsize(c)
+                    char_size = font.getsize(c) if version.parse(PIL.__version__) < version.parse("9") else font.getbbox(c)
                     draw_image.text((cur_x, cur_y), c, fill=(0, 0, 0), font=font)
                     cur_y += char_size[1]
 

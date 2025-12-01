@@ -1,7 +1,10 @@
 """utils for configs, usually used in project startup, function definition, etc."""
 import copy
 import subprocess
-from typing import List
+from types import NoneType
+from typing import List, Union
+
+import pydantic_core
 
 from . import os_lib, converter
 
@@ -286,7 +289,13 @@ def execute_cmd(cmd, **run_kwargs):
 
 class PydanticParse:
     @classmethod
-    def parse_model(cls, model: 'pydantic.BaseModel', return_example=False, return_default_value=False) -> dict:
+    def parse_model(
+            cls, model: 'pydantic.BaseModel',
+            exclude_none_default=False,
+            return_example=False,
+            return_default_value=False,
+            return_na_value=False
+    ) -> dict:
         """
         Usage:
             .. code-block:: python
@@ -300,130 +309,128 @@ class PydanticParse:
                     c: F1 = {}
 
                 parse_pydantic(F2)
-                # {'a': {'types': ['string'], 'is_required': True}, 'b': {'types': ['string'], 'is_required': False, 'default': 'b'}, 'c': {'types': [{'aa': {'types': ['string'], 'is_required': True}}], 'is_required': False, 'default': {}}}
+                # {'a': {'is_required': True, 'type': 'str'}, 'b': {'is_required': False, 'type': 'str'}, 'c': {'is_required': False, 'type': 'F1', 'fields': {'aa': {'is_required': True, 'type': 'str'}}}}
 
                 parse_pydantic(F2, return_example=True)
-                # {'a': 'string', 'b': 'string', 'c': {'aa': 'string'}}
+                # {'a': 'str', 'b': 'str', 'c': {'aa': 'str'}}
 
                 parse_pydantic(F2, return_example=True, return_default_value=True)
-                # {'a': 'string', 'b': 'b', 'c': {'aa': 'string'}}
+                # {'a': 'str', 'b': 'b', 'c': {'aa': 'str'}}
 
         """
 
         import pydantic
-        schema = model.schema()
 
         if pydantic.__version__ < '2':
-            definitions = schema.get('definitions', {})
+            ret = cls.parse_v1_model(model, exclude_none_default)
         else:
-            definitions = schema.get('$defs', {})
+            ret = cls.parse_v2_model(model, exclude_none_default)
 
-        ret = cls.parse_schema(schema, definitions)
         if return_example:
-            ret = cls.parse_ret_dict(ret, return_default_value)
+            ret = cls.parse_ret_dict(ret, return_default_value, return_na_value)
 
         return ret
 
     @classmethod
-    def parse_schema(cls, schema: dict, definitions={}) -> dict:
+    def parse_v1_model(cls, model, exclude_none_default=False):
+        fields = model.__fields__
         ret = {}
-        required = schema.get('required', [])
-        for name, attr in schema['properties'].items():
-            types = cls.parse_properties(attr)
-            for i, _type in enumerate(types):
-                if isinstance(_type, dict):
-                    for v in _type.values():
-                        for ii, __type in enumerate(v['types']):
-                            if __type in definitions:
-                                v['types'][ii] = cls.parse_schema(definitions[__type], definitions)
-                else:
-                    if _type in definitions:
-                        types[i] = cls.parse_schema(definitions[_type], definitions)
+        for field_name, field in fields.items():
+            field_type = field.type_
+            required = field.required
+            desc = field.field_info.description
+            default = field.default
 
-            ret[name] = dict(
-                types=types,
-                is_required=name in required,
-            )
+            if default is None and exclude_none_default:
+                continue
 
-            if 'default' in attr:
-                # support for pydantic.__version__ > '2'
-                ret[name]['default'] = attr['default']
+            ret[field_name] = {
+                "is_required": required,
+                "type": cls.get_type_name(field_type),
+            }
 
-            elif name not in required:
-                ret[name]['default'] = None
+            if not isinstance(default, pydantic_core._pydantic_core.PydanticUndefinedType):
+                ret[field_name]["default"] = default
+
+            if desc:
+                ret[field_name]["desc"] = desc
+
+            if hasattr(field_type, '__fields__'):
+                ret[field_name]["fields"] = cls.parse_v2_model(field_type)
 
         return ret
 
-    @staticmethod
-    def parse_properties(attr: dict) -> list:
-        def parse(a):
-            if 'type' in a:
-                _type = a['type']
-            elif '$ref' in a:
-                obj = a['$ref']
-                _type = obj.split('/')[-1]
-            else:
-                _type = ''
-            return _type
+    @classmethod
+    def parse_v2_model(cls, model, exclude_none_default=False):
+        fields = model.model_fields
+        ret = {}
 
-        types = []
-        tmp = types
-        a = attr
-        while 'items' in a or 'additionalProperties' in a or 'allOf' in a:
-            if 'items' in a:
-                _type = parse(a)
-                tmp.append(_type)
-                a = a['items']
+        for field_name, field in fields.items():
+            field_type = field.annotation
+            required = field.is_required()
+            desc = field.description
+            metadata = field.metadata
+            default = field.default
 
-            elif 'additionalProperties' in a:
-                _type = parse(a)
-                _tmp = []
-                tmp.append({_type: dict(types=_tmp, is_required=True)})
-                tmp = _tmp
-                a = a['additionalProperties']
+            if default is None and exclude_none_default:
+                continue
 
-            elif 'allOf' in a:
-                _type = parse(a['allOf'][0])
-                a = a['allOf'][0]
+            ret[field_name] = {
+                "is_required": required,
+                "type": cls.get_type_name(field_type),
+            }
 
-        _type = parse(a)
-        if _type:
-            tmp.append(_type)
+            if not isinstance(default, pydantic_core._pydantic_core.PydanticUndefinedType):
+                ret[field_name]["default"] = default
 
-        return types
+            if desc:
+                ret[field_name]["desc"] = desc
+
+            if metadata:
+                ret[field_name]["metadata"] = [str(m) for m in metadata]
+
+            if hasattr(field_type, 'model_fields'):
+                ret[field_name]["fields"] = cls.parse_v2_model(field_type)
+
+        return ret
+
+    @classmethod
+    def get_type_name(cls, field_type) -> str:
+        origin = getattr(field_type, "__origin__", None)
+
+        if origin is None:
+            return field_type.__name__ if hasattr(field_type, "__name__") else str(field_type)
+
+        # Union/Optional
+        if origin is Union:
+            args = [a for a in getattr(field_type, "__args__", []) if a is not NoneType]
+            return cls.get_type_name(args[0]) if len(args) == 1 else f"Union[{', '.join(cls.get_type_name(a) for a in args)}]"
+
+        # 泛型（List, Dict等）
+        args = getattr(field_type, "__args__", [])
+        args_str = ", ".join(cls.get_type_name(a) for a in args)
+        return f"{origin.__name__}[{args_str}]"
 
     @classmethod
     def parse_ret_dict(cls, ret: dict, return_default_value=False, return_na_value=False) -> dict:
         """
-        >>> ret = {'a': {'types': ['string'], 'is_required': True}, 'b': {'types': ['string'], 'is_required': False, 'default': 'b'}, 'c': {'types': [{'aa': {'types': ['string'], 'is_required': True}}], 'is_required': False, 'default': {}}}
+        >>> ret = {'a': {'is_required': True, 'type': 'str'}, 'b': {'is_required': False, 'type': 'str'}, 'c': {'is_required': False, 'type': 'F1', 'fields': {'aa': {'is_required': True, 'type': 'str'}}}}
         >>> PydanticParse.parse_ret_dict(ret)
         {'a': 'string', 'b': 'string', 'c': {'aa': 'string'}}
         """
         d = {}
         for k, v in ret.items():
-            a = []
-            b = a
-            for _type in v['types']:
-                if isinstance(_type, dict):
-                    b.append(cls.parse_ret_dict(_type, return_default_value=return_default_value))
-                elif _type == 'array':
-                    if 'default' in v:
-                        b.append(v['default'])
-                        break
-                    else:
-                        c = []
-                        b.append(c)
-                        b = c
-                elif return_default_value and 'default' in v:
-                    b.append(v['default'])
-                else:
-                    b.append(_type)
+            va = v['type']
 
-            if a:
-                d[k] = a[0]
-            elif return_default_value and 'default' in v:
-                d[k] = v['default']
-            elif return_na_value:
-                d[k] = None
+            if 'fields' in v:
+                va = cls.parse_ret_dict(v['fields'], return_default_value, return_na_value)
+
+            elif return_default_value:
+                if 'default' in v:
+                    if v['default'] is None and not return_na_value:
+                        pass
+                    else:
+                        va = v['default']
+            d[k] = va
 
         return d
