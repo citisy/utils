@@ -264,7 +264,7 @@ class ModuleManager:
 
     @staticmethod
     def assign_device_run(module: nn.Module, call_func, device, *args, force_effect_module=True, **kwargs):
-        """let module run in the assigned device"""
+        """let module run in the assigned device, same to `torch.amp.autocast(device)`"""
         if force_effect_module:
             module.to(device)
 
@@ -275,7 +275,7 @@ class ModuleManager:
 
     @staticmethod
     def assign_dtype_run(module: nn.Module, call_func, dtype, *args, force_effect_module=True, **kwargs):
-        """let module run in the assigned dtype"""
+        """let module run in the assigned dtype, different to `torch.amp.autocast(..., dtype)`"""
         if force_effect_module:
             module.to(dtype)
 
@@ -334,6 +334,38 @@ class ModuleManager:
         """trace each module, initialize the variables
         if module has `initialize_layers`, use `module.initialize_layers()` to initialize"""
 
+        def init(m):
+            t = type(m)
+
+            if t is nn.BatchNorm2d:
+                # m.eps = 1e-3
+                # m.momentum = 0.03
+                m.weight.data.normal_(1.0, init_gain)
+                m.bias.data.fill_(0.)
+
+            elif t is nn.LayerNorm:
+                nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.weight, 1.0)
+
+            elif t in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU]:
+                m.inplace = True
+
+            elif t in [nn.Conv2d, nn.Linear, nn.Embedding]:
+                if init_type == 'normal':
+                    nn.init.normal_(m.weight, 0.0, init_gain)
+                elif init_type == 'xavier':
+                    nn.init.xavier_normal_(m.weight, gain=init_gain)
+                elif init_type == 'kaiming':
+                    nn.init.kaiming_normal_(m.weight, a=0)
+                elif init_type == 'orthogonal':
+                    nn.init.orthogonal_(m.weight, gain=init_gain)
+
+                if hasattr(m, 'bias') and m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
+
+            elif t in [nn.ConvTranspose2d]:
+                m.weight.data.copy_(cls.bilinear_kernel(m.in_channels, m.out_channels, m.kernel_size[0]))
+
         def cur(current_m):
             for name, m in current_m._modules.items():
                 if m is None:
@@ -343,40 +375,16 @@ class ModuleManager:
                     m.initialize_layers()
                     continue
 
-                t = type(m)
-
-                if t is nn.BatchNorm2d:
-                    # m.eps = 1e-3
-                    # m.momentum = 0.03
-                    m.weight.data.normal_(1.0, init_gain)
-                    m.bias.data.fill_(0.)
-
-                elif t is nn.LayerNorm:
-                    nn.init.constant_(m.bias, 0)
-                    nn.init.constant_(m.weight, 1.0)
-
-                elif t in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU]:
-                    m.inplace = True
-
-                elif t in [nn.Conv2d, nn.Linear, nn.Embedding]:
-                    if init_type == 'normal':
-                        nn.init.normal_(m.weight, 0.0, init_gain)
-                    elif init_type == 'xavier':
-                        nn.init.xavier_normal_(m.weight, gain=init_gain)
-                    elif init_type == 'kaiming':
-                        nn.init.kaiming_normal_(m.weight, a=0)
-                    elif init_type == 'orthogonal':
-                        nn.init.orthogonal_(m.weight, gain=init_gain)
-
-                    if hasattr(m, 'bias') and m.bias is not None:
-                        nn.init.constant_(m.bias, 0.0)
-
-                elif t in [nn.ConvTranspose2d]:
-                    m.weight.data.copy_(cls.bilinear_kernel(m.in_channels, m.out_channels, m.kernel_size[0]))
+                init(m)
 
                 if len(m._modules) != 0:
                     cur(m)
 
+        if hasattr(module, 'initialize_layers'):
+            module.initialize_layers()
+            return
+
+        init(module)
         cur(module)
 
     @staticmethod
@@ -540,7 +548,12 @@ class Export:
         """note that, dynamic python script change to static c++ script, according to trace the code
         so, such as `if...else...`, 'for...in...`, etc., if trace in a dynamic variable,
         will cause some unexpectedly bugs
-        recommend to export with cpu device"""
+        recommend to export with cpu device
+
+        Examples
+            jit_model = Export.to_torchscript(model, input1, input2)
+            jit_model.save()
+        """
         model.eval()
         with torch.no_grad():
             # warmup, make sure that the model is initialized right

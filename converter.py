@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Dict, Iterable, List, Optional
 
 import cv2
 import numpy as np
@@ -174,9 +174,9 @@ class DataConvert:
     @ignore_exception.add_ignore(err_type=ValueError)
     def str_to_bool(obj):
         obj = obj.lower()
-        if obj in ('y', 'yes', 't', 'true', 'on', '1'):
+        if obj in ('y', 'yes', 't', 'true', 'on', '1', '是'):
             return True
-        elif obj in ('n', 'no', 'f', 'false', 'off', '0'):
+        elif obj in ('n', 'no', 'f', 'false', 'off', '0', '否'):
             return False
         else:
             raise ValueError("invalid truth value %r" % (obj,))
@@ -267,6 +267,36 @@ class DataConvert:
         time_obj = datetime.utcfromtimestamp(timestamp)
         time_str = time_obj.strftime(fmt)
         return time_str
+
+
+class TypeFmtConvert:
+    @staticmethod
+    def list_dict_to_dict_list(obj: List[dict], new_obj={}, ignore_keys=(), keep_keys=None) -> Dict[str, list]:
+        """[{k1:v11, k2:v12}, {k1:v21, k2:v21}] -> {k1:[v11, v21], k2:[v12, v22]}"""
+        for d in obj:
+            for k, v in d.items():
+                if k in ignore_keys:
+                    continue
+                if keep_keys and k not in keep_keys:
+                    continue
+                new_obj.setdefault(k, []).extend(v)
+
+        return new_obj
+
+    @staticmethod
+    def dict_list_to_list_dict(obj: Dict[str, list], new_obj=[], ignore_keys=(), keep_keys=None) -> List[dict]:
+        """{k1:[v11, v21], k2:[v12, v22]} -> [{k1:v11, k2:v12}, {k1:v21, k2:v22}]"""
+        for k, v in obj.items():
+            if k in ignore_keys:
+                continue
+            if keep_keys and k not in keep_keys:
+                continue
+            for i in range(len(v)):
+                if i >= len(new_obj):
+                    new_obj.append({})
+                new_obj[i][k] = v[i]
+
+        return new_obj
 
 
 class DataInsConvert:

@@ -205,6 +205,18 @@ class Saver:
         # else:
         #     self.stderr(path)
 
+    def save_audio(self, obj: np.ndarray, path, sample_rate=16000, **kwargs):
+        import wave
+        obj = (obj * 32767).astype(np.int16)
+
+        # 保存为WAV文件
+        with wave.open(path, 'wb') as wav_file:
+            # 设置参数
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(obj.tobytes())
+
     def save_npy(self, obj: np.ndarray, path, **kwargs):
         np.save(path, obj, **kwargs)
         self.stdout(path)
@@ -482,7 +494,7 @@ class Loader:
         return video, audio, info
 
     def load_video_from_decord(self, path, device='cpu', pts=None, num_pts=None, **kwargs):
-        import decord   # pip install decord
+        import decord  # pip install decord
 
         vr = decord.VideoReader(path, ctx=decord.cpu(0) if device == 'cpu' else decord.gpu(device), **kwargs)
         if pts is None:
@@ -942,7 +954,6 @@ class RedisCacher(BaseCacher):
         self.delete_over_range()
 
         s = int(time.time())
-        obj.setdefault('update_time', s)
         if _id is None:
             _id = s
 
@@ -972,6 +983,13 @@ class RedisCacher(BaseCacher):
     def get_one(self, _id=None, **kwargs):
         if _id is None:
             _id = self.client.randomkey()
+
+        if _id is None:
+            return {}
+
+        _type = self.client.type(_id)
+        if _type == b'set':
+            _id = str(_id).replace('.', ':')
         return self.client.hgetall(_id)
 
     def get_batch(self, _ids=None, size=None, **kwargs):
@@ -981,6 +999,15 @@ class RedisCacher(BaseCacher):
         for _id in _ids:
             rets.append(self.get_one(_id))
         return rets
+
+    def delete_all(self):
+        self.client.flushdb()
+
+    def delete_one(self, _id):
+        self.client.delete(_id)
+
+    def delete_batch(self, _ids):
+        self.client.delete(*_ids)
 
 
 class ESCacher(BaseCacher):
@@ -1310,7 +1337,10 @@ class MilvusCacher(BaseCacher):
         else:
             res = self.client.query(**kwargs)
 
-        return res[0]
+        if res:
+            return res[0]
+        else:
+            return {}
 
     def get_batch(self, vectors=None, is_search=True, size=None, **kwargs) -> List[List[dict]] | List[dict]:
         kwargs.setdefault('collection_name', self.collection_name)
