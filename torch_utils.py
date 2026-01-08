@@ -337,20 +337,20 @@ class ModuleManager:
         def init(m):
             t = type(m)
 
-            if t is nn.BatchNorm2d:
+            if t is (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d):
                 # m.eps = 1e-3
                 # m.momentum = 0.03
                 m.weight.data.normal_(1.0, init_gain)
                 m.bias.data.fill_(0.)
 
-            elif t is nn.LayerNorm:
-                nn.init.constant_(m.bias, 0)
+            elif t in (nn.GroupNorm, nn.LayerNorm):
                 nn.init.constant_(m.weight, 1.0)
+                nn.init.constant_(m.bias, 0)
 
             elif t in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU]:
                 m.inplace = True
 
-            elif t in [nn.Conv2d, nn.Linear, nn.Embedding]:
+            elif t in (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.Embedding):
                 if init_type == 'normal':
                     nn.init.normal_(m.weight, 0.0, init_gain)
                 elif init_type == 'xavier':
