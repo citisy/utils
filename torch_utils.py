@@ -30,6 +30,16 @@ def setup_seed(seed=42):
     cudnn.deterministic = True
 
 
+def init_distributed_mode():
+    if int(os.environ.get("RANK", -1)) == -1:
+        return 0
+
+    torch.distributed.init_process_group(backend="nccl")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    return local_rank
+
+
 class ModuleInfo:
     @classmethod
     def std_profile(cls, model, depth=None, human_readable=True):
