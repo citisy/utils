@@ -189,7 +189,7 @@ def logger_init(log_dir=None, **custom_config):
         },
         # handlers to scream
         'handlers': {
-            # 屏幕输出流
+            # stream print
             'default': {
                 'level': 'DEBUG',
                 'formatter': 'standard',
@@ -197,7 +197,7 @@ def logger_init(log_dir=None, **custom_config):
                 'stream': 'ext://sys.stderr',
             },
 
-            # 简单的无格式屏幕输出流
+            # simple print
             'print': {
                 'level': 'DEBUG',
                 'class': 'logging.StreamHandler',
@@ -212,7 +212,7 @@ def logger_init(log_dir=None, **custom_config):
                 'propagate': False
             },
 
-            # 简单的无格式屏幕输出流
+            # simple print
             'print': {
                 'handlers': ['print'],
                 'level': 'INFO',
@@ -226,27 +226,27 @@ def logger_init(log_dir=None, **custom_config):
         add_config = {
             # handlers to file
             'handlers': {
-                # 简略信息info
+                # simple info
                 'info_standard': {
                     'level': 'INFO',
                     'formatter': 'standard',
                     'class': 'utils.log_utils.MultiProcessTimedRotatingFileHandler',
-                    'filename': f'{log_dir}/info_standard.log',
+                    'filename': f'{log_dir}/info.log',
                     'when': 'W0',
                     'backupCount': 5,
                 },
 
-                # 详细信息info
-                'info': {
-                    'level': 'INFO',
-                    'formatter': 'precise',
-                    'class': 'utils.log_utils.MultiProcessTimedRotatingFileHandler',
-                    'filename': f'{log_dir}/info.log',
-                    'when': 'D',
-                    'backupCount': 15,
-                },
+                # # detail info
+                # 'info': {
+                #     'level': 'INFO',
+                #     'formatter': 'precise',
+                #     'class': 'utils.log_utils.MultiProcessTimedRotatingFileHandler',
+                #     'filename': f'{log_dir}/info.log',
+                #     'when': 'D',
+                #     'backupCount': 15,
+                # },
 
-                # 详细信息error
+                # detail error
                 'error': {
                     'level': 'ERROR',
                     'formatter': 'precise',
@@ -265,24 +265,24 @@ def logger_init(log_dir=None, **custom_config):
                     'propagate': False
                 },
 
-                # 简单的无格式屏幕输出流
+                # simple print
                 'print': {
                     'handlers': ['print', 'info_standard', 'error'],
                     'level': 'INFO',
                     'propagate': False
                 },
 
-                'service': {
-                    'handlers': ['default', 'info', 'error'],
-                    'level': 'INFO',
-                    'propagate': False
-                },
+                # 'service': {
+                #     'handlers': ['default', 'info', 'error'],
+                #     'level': 'INFO',
+                #     'propagate': False
+                # },
             }
 
         }
-        default_config = configs.ConfigObjParse.merge_dict(default_config, add_config)
+        default_config = configs.ConfigObjParse.merge_dict(default_config, add_config, depth=1)
 
-    default_config = configs.ConfigObjParse.merge_dict(default_config, custom_config)
+    default_config = configs.ConfigObjParse.merge_dict(default_config, custom_config, depth=1)
     logging.config.dictConfig(default_config)
     return default_config
 
@@ -300,6 +300,7 @@ def wandb_init(**custom_config):
 
 def get_logger(logger=''):
     if isinstance(logger, str) or logger is None:
+        logger = logger or ''
         logger = logging.getLogger(logger)
     return logger
 

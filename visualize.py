@@ -14,6 +14,11 @@ from .excluded.cmap import cmap, terminal_cmap
 cmap_list = list(cmap.keys())
 POLYGON = 1
 RECTANGLE = 2
+LEFT_TOP = 0
+RIGHT_TOP = 1
+RIGHT_DOWN = 2
+LEFT_DOWN = 3
+CENTER = 4
 
 
 def get_color_array(idx=None, name=None):
@@ -160,7 +165,7 @@ class ImageVisualize:
         return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
     @classmethod
-    def label_box(cls, img, boxes, labels, colors=None, line_thickness=None, inplace=False):
+    def label_box(cls, img, boxes, labels, colors=None, point_type=LEFT_TOP, line_thickness=None, inplace=False):
         """boxes + label text, text belong to the box, do not need text area specially
         note, do not support Chinese
         boxes: (n, 4)
@@ -178,12 +183,12 @@ class ImageVisualize:
         # visual label
         for i in range(len(labels)):
             xyxy = boxes[i]
-            cls.label(img, labels[i], lt=(int(xyxy[0]), int(xyxy[1])), bg_color=colors[i], thickness=line_thickness, inplace=True)
+            cls.label(img, labels[i], point=(int(xyxy[0]), int(xyxy[1])), point_type=point_type, bg_color=colors[i], thickness=line_thickness, inplace=True)
 
         return img
 
     @staticmethod
-    def label(img, label, lt=(0, 0), bg_color=None, font_color=None, thickness=None, inplace=False):
+    def label(img, label, point=(0, 0), point_type=LEFT_TOP, bg_color=None, font_color=None, thickness=None, inplace=False):
         """only label text, do not need text area"""
         if not inplace:
             img = img.copy()
@@ -198,11 +203,28 @@ class ImageVisualize:
 
         t_size = cv2.getTextSize(label, 0, fontScale=font_scale, thickness=thickness)[0]
 
-        bg_rd = (lt[0] + t_size[0], lt[1] + t_size[1] + thickness * 2)
-        text_ld = (lt[0], lt[1] + t_size[1] + thickness)
-        cv2.rectangle(img, lt, bg_rd, bg_color, -1, cv2.LINE_AA)  # filled
-        cv2.putText(img, label, text_ld, 0, font_scale, font_color, thickness=thickness,
-                    lineType=cv2.LINE_AA)
+        if point_type == LEFT_TOP:
+            bg_lt = point
+
+        elif point_type == LEFT_DOWN:
+            bg_lt = (point[0], point[1] - t_size[1] - thickness * 2)
+
+        elif point_type == RIGHT_TOP:
+            bg_lt = (point[0] - t_size[0], point[1])
+
+        elif point_type == RIGHT_DOWN:
+            bg_lt = (point[0] - t_size[0], point[1] - t_size[1] - thickness * 2)
+
+        elif point_type == CENTER:
+            bg_lt = (point[0] - t_size[0] // 2, point[1] - (t_size[1] + thickness * 2) // 2)
+
+        else:
+            raise ValueError(f'{point_type} not supported')
+
+        bg_rd = (bg_lt[0] + t_size[0], bg_lt[1] + t_size[1] + thickness * 2)
+        text_ld = (bg_lt[0], bg_lt[1] + t_size[1] + thickness)
+        cv2.rectangle(img, bg_lt, bg_rd, bg_color, -1, cv2.LINE_AA)  # filled
+        cv2.putText(img, label, text_ld, 0, font_scale, font_color, thickness=thickness, lineType=cv2.LINE_AA)
 
         return img
 

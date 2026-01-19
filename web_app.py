@@ -1,7 +1,5 @@
 """utils for creating a web app to provide api endpoints"""
 import json
-import os
-import time
 from contextlib import nullcontext
 
 import pydantic
@@ -11,23 +9,31 @@ from . import converter
 
 class BaseApp:
     @classmethod
-    def from_configs(cls, configs: dict, app_configs=dict()):
+    def from_configs(cls, app_configs=dict(), router_configs=dict()):
         """
-        configs:
-            {router_path: {api_path: router_kwargs}}
-        router_kwargs:
-            app_func
-            method
-            func
-            request_template
-            response_template
-            func_configs
+        app_configs:
+            create_app_configs:
+            wrap_app_configs:
+        router_configs:
+            api_configs:
+                {router_path: {api_path: router_kwargs}}
+                router_kwargs:
+                    app_func
+                    method
+                    func
+                    request_template
+                    response_template
+                    func_configs
+            wrap_router_configs:
         """
-        app = cls.create_app(**app_configs)
+        create_app_configs = app_configs.get('create_app_configs', {})
+        app = cls.create_app(**create_app_configs)
 
-        for router_path, cfg in configs.items():
+        api_configs = router_configs.get('api_configs', dict())
+        create_router_configs = router_configs.get('wrap_router_configs', dict())
+        for router_path, api_configs in api_configs.items():
             sub_app = cls.create_sub_app()
-            for api_path, router_kwargs in cfg.items():
+            for api_path, router_kwargs in api_configs.items():
                 if 'app_func' in router_kwargs:
                     app_func = router_kwargs.get('app_func')
                     app_func = converter.DataInsConvert.str_to_instance(app_func)
@@ -43,7 +49,23 @@ class BaseApp:
 
             cls.mount_app(app, sub_app, router_path)
 
-        app = cls.wrap_app(app)
+            router_config = create_router_configs.get(router_path, {})
+            wrap_funcs = router_config.get('wrap_funcs', [])
+            for wrap_func_configs in wrap_funcs:
+                app_func = wrap_func_configs.pop('app_func')
+                if isinstance(app_func, str):
+                    app_func = converter.DataInsConvert.str_to_instance(app_func)
+                app_func(app, sub_app=sub_app, router_path=router_path, api_configs=api_configs, **wrap_func_configs)
+
+        cls.wrap_app(app)
+
+        wrap_app_configs = app_configs.get('wrap_app_configs', {})
+        wrap_funcs = wrap_app_configs.get('wrap_funcs', [])
+        for wrap_func_configs in wrap_funcs:
+            app_func = wrap_func_configs.pop('app_func')
+            if isinstance(app_func, str):
+                app_func = converter.DataInsConvert.str_to_instance(app_func)
+            app_func(app, **wrap_func_configs)
 
         return app
 
@@ -274,73 +296,3 @@ class FakeApp:
 
     def get(self, *args, **kwargs):
         return nullcontext
-
-
-class FastApiAppWrapper:
-    @staticmethod
-    def add_CORS(app):
-        from fastapi.middleware.cors import CORSMiddleware
-
-        # 添加跨域中间件
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-
-        return app
-
-    @staticmethod
-    def add_process_time_header(app):
-        @app.middleware("http")
-        async def add(request, call_next):
-            start_time = time.time()
-            response = await call_next(request)
-            process_time = time.time() - start_time
-            response.headers["X-Process-Time"] = f'{process_time:0.4f} sec'
-            return response
-
-    @staticmethod
-    def add_docs(
-            app, router_path, api_path,
-            title='',
-            version="1.0.0",
-            description=None,
-            **router_kwargs
-    ):
-        from fastapi.openapi.docs import get_swagger_ui_html
-        from fastapi import HTTPException
-        from fastapi.openapi.utils import get_openapi
-        from fastapi.responses import FileResponse
-
-        @app.get(f"/docs", include_in_schema=False)
-        async def custom_swagger_ui_html():
-            return get_swagger_ui_html(
-                openapi_url=f'{router_path}/openapi.json',
-                title=title + " - Swagger UI",
-                swagger_js_url=f"{router_path}/static/swagger-ui-bundle.js",
-                swagger_css_url=f"{router_path}/static/swagger-ui.css",
-                swagger_favicon_url=f"{router_path}/static/favicon-32x32.png",
-            )
-
-        @app.get("/static/{file_path:path}", include_in_schema=False)
-        async def get_static_file(file_path: str):
-            file_location = os.path.join('static', file_path)
-
-            if not os.path.exists(file_location) or not os.path.isfile(file_location):
-                raise HTTPException(status_code=404, detail="File not found")
-
-            return FileResponse(file_location)
-
-        @app.get("/openapi.json", include_in_schema=False)
-        async def custom_openapi():
-            openapi_schema = get_openapi(
-                title=title,
-                version=version,
-                routes=app.routes,
-                description=description
-            )
-            openapi_schema['paths'] = {router_path + k: v for k, v in openapi_schema['paths'].items()}
-            return openapi_schema

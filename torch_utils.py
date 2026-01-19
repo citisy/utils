@@ -274,7 +274,7 @@ class ModuleManager:
 
     @staticmethod
     def assign_device_run(module: nn.Module, call_func, device, *args, force_effect_module=True, **kwargs):
-        """let module run in the assigned device, same to `torch.amp.autocast(device)`"""
+        """let module run in the assigned device, different to `torch.amp.autocast(device)`"""
         if force_effect_module:
             module.to(device)
 

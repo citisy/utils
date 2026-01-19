@@ -151,7 +151,7 @@ class ConfigObjParse:
         return ret.get('', {})
 
     @staticmethod
-    def merge_dict(d1: dict, d2: dict) -> dict:
+    def merge_dict(d1: dict, d2: dict, depth=None) -> dict:
         """merge values from d1 and d2
         if had same key, d2 will cover d1
 
@@ -168,18 +168,21 @@ class ConfigObjParse:
 
         """
 
-        def cur(cur_dic, new_dic):
+        def cur(cur_dic, new_dic, cur_depth=None):
+            if depth and cur_depth > depth:
+                return new_dic
+
             for k, v1 in new_dic.items():
                 if k not in cur_dic:
                     pass
                 elif isinstance(v1, dict) and isinstance(cur_dic[k], dict):
                     v2 = cur_dic[k]
-                    v1 = cur(v2, v1)
+                    v1 = cur(v2, v1, cur_depth=cur_depth+1)
                 elif isinstance(v1, list) and isinstance(cur_dic[k], list):
                     v2 = cur_dic[k]
                     for i, (vv1, vv2) in enumerate(zip(v1, v2)):
                         if isinstance(v1, dict) and isinstance(cur_dic[k], dict):
-                            v1[i] = cur(vv2, vv1)
+                            v1[i] = cur(vv2, vv1, cur_depth=cur_depth+1)
                         else:
                             v1[i] = [vv2, vv1]
 
@@ -187,7 +190,7 @@ class ConfigObjParse:
 
             return cur_dic
 
-        return cur(copy.deepcopy(d1), copy.deepcopy(d2))
+        return cur(copy.deepcopy(d1), copy.deepcopy(d2), cur_depth=0)
 
     @classmethod
     def parse_config_obj_example(cls, config_path, parser) -> dict:
@@ -244,7 +247,7 @@ def permute_obj(obj: dict or list):
     """
 
     Example:
-        
+
         >>> kwargs = [{'a': [1], 'b': [2, 3]}, {'c': [4, 5, 6]}]
         >>> permute_obj(kwargs)
         [{'a': 1, 'b': 2}, {'a': 1, 'b': 3}, {'c': 4}, {'c': 5}, {'c': 6}]
