@@ -340,7 +340,7 @@ class ModuleManager:
             return call_func(*args, **kwargs)
 
     @classmethod
-    def initialize_layers(cls, module, init_gain=0.02, init_type='normal'):
+    def initialize_layers(cls, module, init_gain=0.02, init_type='normal', strict=False):
         """trace each module, initialize the variables
         if module has `initialize_layers`, use `module.initialize_layers()` to initialize"""
 
@@ -376,6 +376,9 @@ class ModuleManager:
             elif t in [nn.ConvTranspose2d]:
                 m.weight.data.copy_(cls.bilinear_kernel(m.in_channels, m.out_channels, m.kernel_size[0]))
 
+            elif len(m._modules) == 0 and any(p.requires_grad for p in m.parameters()):
+                unexpected_modules.append(m)
+
         def cur(current_m):
             for name, m in current_m._modules.items():
                 if m is None:
@@ -394,8 +397,14 @@ class ModuleManager:
             module.initialize_layers()
             return
 
+        unexpected_modules = []
         init(module)
         cur(module)
+
+        if strict and unexpected_modules:
+            raise ValueError(f"Initialize layers has unexpected modules: {unexpected_modules}")
+
+        return unexpected_modules
 
     @staticmethod
     def bilinear_kernel(in_channels, out_channels, kernel_size):
