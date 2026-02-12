@@ -166,6 +166,16 @@ class ModuleInfo:
         return flops
 
     @staticmethod
+    def visual(module):
+        """https://github.com/spfrommer/torchexplorer
+        sudo apt-get install libgraphviz-dev graphviz
+        pip install torchexplorer
+        todo: there are some bugs, for example, do not support dict type output. Find another better visual tool.
+        """
+        import torchexplorer
+        torchexplorer.watch(module, log=['io', 'params'], disable_inplace=True, backend='standalone')
+
+    @staticmethod
     def possible_device(module):
         """Returns the first found device in parameters, otherwise returns the first found device in tensors."""
         try:

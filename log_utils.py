@@ -53,7 +53,13 @@ class FakeWandb:
         self.id = None
         self.__dict__.update(**kwargs)
 
+    def login(self, *args, **kwargs):
+        pass
+
     def init(self, *args, **kwargs):
+        return self
+
+    def Text(self, *args, **kwargs):
         return self
 
     def Table(self, *args, **kwargs):
