@@ -749,6 +749,74 @@ class EarlyStopping:
         self.__dict__.update(items)
 
 
+class Counter:
+    total_epoch = -1
+    total_epoch_steps = -1
+
+    check_strategy = 'epoch'
+
+    cur_epoch = -1
+    cur_steps = -1
+    cur_nums = -1
+    cur_epoch_steps = -1
+    cur_epoch_nums = -1
+    cur_period_steps = -1
+    cur_period_nums = -1
+
+    reset_keys = ('cur_epoch', 'cur_steps', 'cur_nums', 'cur_epoch_steps', 'cur_epoch_nums', 'cur_period_steps', 'cur_period_nums')
+    reset_epoch_keys = ('cur_epoch_steps', 'cur_epoch_nums')
+    reset_step_keys = ()
+    reset_period_keys = ('cur_period_steps', 'cur_period_nums')
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+    @property
+    def cur_period(self):
+        if self.check_strategy == 'epoch':
+            return self.cur_epoch
+        else:
+            return self.cur_steps
+
+    def update_step(self, num):
+        self.cur_nums += num
+        self.cur_steps += 1
+        self.cur_epoch_nums += num
+        self.cur_epoch_steps += 1
+        self.cur_period_nums += num
+
+    def update_period(self, num):
+        self.cur_period_steps += 1
+        self.cur_period_nums += num
+
+    def update_epoch(self, num=1):
+        self.cur_epoch += num
+
+    def reset(self):
+        for k in self.reset_keys:
+            setattr(self, k, 0)
+
+    def reset_epoch(self):
+        for k in self.reset_epoch_keys:
+            setattr(self, k, 0)
+
+    def reset_step(self):
+        for k in self.reset_step_keys:
+            setattr(self, k, 0)
+
+    def reset_period(self):
+        for k in self.reset_period_keys:
+            setattr(self, k, 0)
+
+    def state_dict(self):
+        return {k: getattr(self, k) for k in self.reset_keys}
+
+    def load_state_dict(self, items: dict):
+        for k, v in items.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
+
+
 class EMA:
     """ Updated Exponential Moving Average (EMA) from https://github.com/rwightman/pytorch-image-models
     Keeps a moving average of everything in the model state_dict (parameters and buffers)
