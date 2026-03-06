@@ -50,19 +50,17 @@ class BaseApp:
             cls.mount_app(app, sub_app, router_path)
 
             router_config = create_router_configs.get(router_path, {})
-            wrap_funcs = router_config.get('wrap_funcs', [])
-            for wrap_func_configs in wrap_funcs:
-                app_func = wrap_func_configs.pop('app_func')
+            wrap_funcs = router_config.get('wrap_funcs', {})
+            for app_func, wrap_func_configs in wrap_funcs.items():
                 if isinstance(app_func, str):
                     app_func = converter.DataInsConvert.str_to_instance(app_func)
-                app_func(app, sub_app=sub_app, router_path=router_path, api_configs=api_configs, **wrap_func_configs)
+                app_func(app, sub_app, router_path, api_configs=api_configs, **wrap_func_configs)
 
         cls.wrap_app(app)
 
         wrap_app_configs = app_configs.get('wrap_app_configs', {})
-        wrap_funcs = wrap_app_configs.get('wrap_funcs', [])
-        for wrap_func_configs in wrap_funcs:
-            app_func = wrap_func_configs.pop('app_func')
+        wrap_funcs = wrap_app_configs.get('wrap_funcs', {})
+        for app_func, wrap_func_configs in wrap_funcs.items():
             if isinstance(app_func, str):
                 app_func = converter.DataInsConvert.str_to_instance(app_func)
             app_func(app, **wrap_func_configs)

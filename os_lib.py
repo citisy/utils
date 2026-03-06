@@ -1276,7 +1276,7 @@ class SqliteCacher(MySqlCacher):
     @property
     def connection(self):
         # note, each time execute the sql, initialize a new connection, 'cause one connection would use the cache result
-        import sqlite3
+        import sqlite3  # pip install pymysql
         return sqlite3.connect(
             database=self.database,
             **self.conn_kwargs

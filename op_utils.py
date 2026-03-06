@@ -1,6 +1,7 @@
 """utils for operating instances of python, decorator usually"""
 import time
 from functools import wraps
+from contextlib import contextmanager
 
 from .os_lib import FakeIo
 
@@ -25,14 +26,28 @@ class IgnoreException:
                 raise Exception
     """
 
-    def __init__(self, verbose=True, stdout_method=print):
+    def __init__(self, verbose=True, stdout_method=print, msg_fmt=None):
         self.stdout_method = stdout_method if verbose else FakeIo()
+        self.msg_fmt = msg_fmt or 'Ignore the error occur: {e}'
+
+    @contextmanager
+    def context(self, *args, e=None, **kwargs):
+        msg = self.msg_fmt.format(e=e, **kwargs)
+        self.stdout_method(msg)
+        try:
+            yield
+        finally:
+            pass
 
     def add_ignore(
             self,
-            error_message='',
-            err_type=(ConnectionError, TimeoutError)
+            err_context=None,
+            err_type=(ConnectionError, TimeoutError),
+            raise_type=type(None),
+            err_fn=None,
     ):
+        context = err_context or self.context
+
         def wrap2(func):
             @wraps(func)
             def wrap(*args, **kwargs):
@@ -40,8 +55,12 @@ class IgnoreException:
                     return func(*args, **kwargs)
 
                 except err_type as e:
-                    msg = error_message or f'Something error occur: {e}'
-                    self.stdout_method(msg)
+                    if isinstance(e, raise_type):
+                        raise e
+
+                    with context(*args, e=e, **kwargs):
+                        if err_fn:
+                            return err_fn(*args, **kwargs)
 
             return wrap
 
@@ -62,27 +81,43 @@ class Retry:
             def func():
                 raise Exception
 
-            @retry.add_try(error_message='there is an error, sleep %d seconds')
+            @retry.add_try(err_type=Exception)
             def func():
                 raise Exception
 
-            @retry.add_try(err_type=Exception)
+            @contextmanager
+            def my_context(self, e, i, **kwargs):
+                ...
+
+            @retry.add_try(err_context=my_context)
             def func():
                 raise Exception
     """
 
-    def __init__(self, verbose=True, stdout_method=print, count=3, wait=15):
+    def __init__(self, verbose=True, stdout_method=print, msg_fmt=None, count=3, wait=15):
         self.verbose = verbose
         self.stdout_method = stdout_method if verbose else FakeIo()
         self.count = count
         self.wait = wait
+        self.msg_fmt = msg_fmt or 'Something error occur: "{e}", sleep {wait} seconds, and then retry!'
+
+    @contextmanager
+    def context(self, *args, e=None, i=None, **kwargs):
+        msg = self.msg_fmt.format(e=e, wait=self.wait, **kwargs)
+        self.stdout_method(msg)
+        try:
+            yield
+        finally:
+            self.stdout_method(f'{i + 2}th process!')
 
     def add_try(
             self,
-            error_message='',
+            err_context=None,
             err_type=(ConnectionError, TimeoutError),
-            raise_type=type(None)
+            raise_type=type(None),
     ):
+        context = err_context or self.context
+
         def wrap2(func):
             @wraps(func)
             def wrap(*args, **kwargs):
@@ -97,11 +132,8 @@ class Retry:
                         if i >= self.count - 1:
                             raise e
 
-                        msg = error_message or 'Something error occur: "{e}", sleep {wait} seconds, and then retry!'
-                        msg = msg.format(e=e, wait=self.wait)
-                        self.stdout_method(msg)
-                        time.sleep(self.wait)
-                        self.stdout_method(f'{i + 2}th try!')
+                        with context(*args, e=e, i=i, **kwargs):
+                            time.sleep(self.wait)
 
             return wrap
 
@@ -142,8 +174,8 @@ class RegisterTables:
 
         return wrap
 
-    def get(self, key, default=None, table_name='default'):
-        return getattr(self, table_name).get(key, default)
+    def get(self, key, table_name='default'):
+        return getattr(self, table_name)[key]
 
     def __repr__(self):
         return str(self.__dict__)

@@ -1195,10 +1195,8 @@ class Converter:
 
         for i, (k, v) in enumerate(state_dict.items()):
             # convert key
-            if key_types[i] == 'nm':
-                k = k.replace('._mean', '.running_mean')
-            elif key_types[i] == 'nv':
-                k = k.replace('._variance', '.running_var')
+            k = k.replace('._mean', '.running_mean')
+            k = k.replace('._variance', '.running_var')
 
             # convert value
             if key_types[i] == 'w' and value_types[i] in convert_tf_funcs:
