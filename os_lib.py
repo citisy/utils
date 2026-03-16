@@ -77,7 +77,7 @@ def find_all_suffixes_files(root_dir, suffixes):
         suffixes (List[str]): ['.xxx']
 
     """
-    return (p for p in Path(root_dir).rglob('*') if p.suffix in suffixes)
+    return (p for p in Path(root_dir).rglob('*') if p.suffix.lower() in suffixes)
 
 
 class Saver:
@@ -418,7 +418,7 @@ class Loader:
         # but still bugs with `cv2.imread`, so still use the following method to read images
         img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), -1)
         # img = cv2.imread(path)
-        assert img is not None
+        assert img is not None, f'Load {path} failed!'
 
         if channel_fixed_3:
             if img.shape[2] == 3:

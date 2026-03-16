@@ -1215,7 +1215,7 @@ def make_optimizer_cls(name: str):
         'AdamW8bit', 'SGDNesterov8bit', 'Lion8bit', 'PagedAdamW8bit', 'PagedLion8bit',
         'PagedAdamW', 'PagedAdamW32bit'
     }:
-        import bitsandbytes as bnb
+        import bitsandbytes as bnb  # pip install bitsandbytes
         return getattr(bnb.optim, name)
 
     elif name in {'DAdaptAdaGrad', 'DAdaptAdam', 'DAdaptAdan', 'DAdaptLion', 'DAdaptSGD'}:
