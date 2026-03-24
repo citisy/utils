@@ -205,3 +205,44 @@ def unique_gather(k, v) -> List[list]:
     for gather_k in np.unique(k):
         outputs.append(gather(k, v, gather_k))
     return outputs
+
+
+def detect_continuous_sequences(x, min_interval=0, min_len=0):
+    """detect sequences which continuous
+
+    Args:
+        x: 1-D array, dtype of bool
+        min_interval(int): num of points less than tol will be treated as one sequences
+        min_len(int): filter sequences whose length is less than min_len
+
+    Returns:
+        seq: 2-D array, (m, 2)
+
+    Examples
+        >>> x = np.array([0] * 10 + [1] * 20 + [0] * 5 + [1] * 20 + [0] * 20)
+        >>> detect_continuous_sequences(x, min_interval=3)
+        [[10 29]
+         [35 54]]
+        >>> detect_continuous_sequences(x, min_interval=10)
+        [[10 54]]
+    """
+    x = np.insert(x, 0, 0)
+    x = np.append(x, 0)
+    diff = np.diff(x)
+    start = np.argwhere(diff == 1).flatten()
+    end = np.argwhere(diff == -1).flatten()
+    seq = np.stack((start, end), axis=1)
+
+    idx = np.where((np.abs(seq[1:, 0] - seq[:-1, 1])) < min_interval)[0]
+
+    for i in idx[::-1]:
+        seq[i, 1] = seq[i + 1, 1]
+
+    flag = np.ones(len(seq), dtype=np.bool_)
+    flag[idx + 1] = False
+    seq = seq[flag]
+
+    # length larger than region_thres
+    seq = seq[(seq[:, 1] - seq[:, 0]) >= min_len]
+
+    return seq

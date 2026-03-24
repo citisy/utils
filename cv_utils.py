@@ -1,6 +1,7 @@
 """utils for computer vision task"""
 import cv2
 import numpy as np
+from . import math_utils
 
 
 class CoordinateConvert:
@@ -160,13 +161,13 @@ class CoordinateConvert:
         return rects
 
 
-def detect_continuous_lines(image, tol=0, region_thres=0, binary_thres=200, axis=1):
+def detect_continuous_lines(image, min_interval=0, min_len=0, binary_thres=200, axis=1):
     """detect vertical or horizontal lines which have continuous pixels
 
     Args:
         image: 3-D array(h, w, c) or 2-D array(h, w)
-        tol(int): num of blank pixels lower than tol will be treated as one line
-        region_thres(int): filter lines whose length is lower than region_thres
+        min_interval(int): num of blank pixels lower than tol will be treated as one line
+        min_len(int): filter lines whose length is lower than region_thres
         binary_thres(int): binary images threshold, fall in [0, 255]
         axis: 0 for y-axis lines, 1 for x-axis lines
 
@@ -179,53 +180,33 @@ def detect_continuous_lines(image, tol=0, region_thres=0, binary_thres=200, axis
         _, image = cv2.threshold(image, binary_thres, 1, cv2.THRESH_BINARY_INV)
 
     projection = np.any(image, axis=axis)
-
-    projection = np.insert(projection, 0, 0)
-    projection = np.append(projection, 0)
-    diff = np.diff(projection)
-    start = np.argwhere(diff == 1).flatten()
-    end = np.argwhere(diff == -1).flatten() - 1
-    lines = np.stack((start, end), axis=1)
-
-    idx = np.where((np.abs(lines[1:, 0] - lines[:-1, 1])) < tol)[0]
-
-    for i in idx[::-1]:
-        lines[i, 1] = lines[i + 1, 1]
-
-    flag = np.ones(len(lines), dtype=bool)
-    flag[idx + 1] = False
-    lines = lines[flag]
-
-    # length larger than region_thres
-    lines = lines[(lines[:, 1] - lines[:, 0]) >= region_thres]
-
-    return lines
+    return math_utils.detect_continuous_sequences(projection, min_interval, min_len)
 
 
-def detect_continuous_areas(image, x_tol=20, y_tol=20, region_thres=0, binary_thres=200):
+def detect_continuous_areas(image, x_min_interval=20, y_min_interval=20, min_len=0, binary_thres=200):
     """detect rectangles which have continuous pixels
 
     Args:
         image: 3-D array(h, w, c) or 2-D array(h, w)
-        x_tol: see also `detect_continuous_lines()`
-        y_tol: see also `detect_continuous_lines()`
-        region_thres: see also `detect_continuous_lines()`
+        x_min_interval: see also `detect_continuous_lines()`
+        y_min_interval: see also `detect_continuous_lines()`
+        min_len: see also `detect_continuous_lines()`
         binary_thres: see also `detect_continuous_lines()`
 
     Returns:
-
+        bboxes: 2-D array, (m, 4)
     """
     if len(image.shape) == 3:
         # binary
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         _, image = cv2.threshold(image, binary_thres, 255, cv2.THRESH_BINARY_INV)
 
-    y_lines = detect_continuous_lines(image, y_tol, region_thres, binary_thres, axis=1)
+    y_lines = detect_continuous_lines(image, y_min_interval, min_len, binary_thres, axis=1)
 
     bboxes = []
 
     for y_line in y_lines:
-        x_lines = detect_continuous_lines(image[y_line[0]: y_line[1]], x_tol, region_thres, binary_thres, axis=0)
+        x_lines = detect_continuous_lines(image[y_line[0]: y_line[1]], x_min_interval, min_len, binary_thres, axis=0)
         bbox = np.zeros((len(x_lines), 4), dtype=int)
         bbox[:, 0::2] = x_lines
         bbox[:, 1::2] = y_line
