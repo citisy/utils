@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 from torch import nn
 
-from . import math_utils, os_lib
+from . import math_utils, os_lib, log_utils
 
 
 def setup_seed(seed=42):
@@ -690,8 +690,7 @@ class Load:
 
 
 class EarlyStopping:
-    def __init__(self, thres=0.005, patience=None, min_period=0, ignore_min_score=-1,
-                 verbose=True, stdout_method=print):
+    def __init__(self, thres=0.005, patience=None, min_period=0, ignore_min_score=-1, verbose=True, stdout_method=print):
         """
 
         Args:
@@ -710,12 +709,13 @@ class EarlyStopping:
         self.min_period = min_period
         self.ignore_min_score = ignore_min_score
         self.patience = patience or float('inf')
-        self.verbose = verbose
-        self.stdout_method = stdout_method
+        self.stdout_method = stdout_method if verbose else log_utils.EmptyLogger()
+        self.stdout_method(f'EarlyStopping init with {thres = }, {patience = }, {min_period = }, {ignore_min_score = }')
 
     def step(self, period, score):
         if period < self.min_period or score < self.ignore_min_score:
             self.last_period = period
+            self.best_period = period
             self.best_score = score
             return False
 
@@ -730,7 +730,7 @@ class EarlyStopping:
 
         self.last_period = period
         stop = self.acc_period >= self.patience
-        if stop and self.verbose:
+        if stop:
             self.stdout_method(f'Early Stopping training. Best results observed at period {self.best_period}, and best score is {self.best_score}')
         return stop
 

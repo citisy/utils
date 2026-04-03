@@ -435,6 +435,15 @@ class Loader:
         self.stdout(path)
         return img
 
+    def load_jpeg(self, path, **kwargs) -> np.ndarray:
+        # apt update
+        # apt install libturbojpeg libturbojpeg-dev
+        # pip install PyTurboJPEG
+        from turbojpeg import TurboJPEG
+        jpeg = TurboJPEG()
+        img = jpeg.decode(open(path, 'rb').read())
+        return img
+
     def load_audio(self, path, sr: int = 16000, use_gpu=False) -> np.ndarray:
         """install ffmpeg first
 
@@ -573,16 +582,22 @@ class Loader:
         if not cap.isOpened():
             raise f'{path} is individual file, not a video file!'
 
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS)
+        interval = duration * fps
 
         images = []
-        for i in range(0, total_frames, int(duration * fps)):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+        # faster loading
+        i = 0
+        while True:
             flag, image = cap.read()
-            if flag:
+            if not flag:
+                break
+            if i >= interval:
                 images.append(image)
+                i -= interval
+            i += 1
 
+        cap.release()
         self.stdout(path)
         return images
 
