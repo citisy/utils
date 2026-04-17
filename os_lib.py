@@ -91,7 +91,7 @@ class Saver:
         self.funcs = {
             suffixes_dict['json']: self.save_json,
             suffixes_dict['jsonl']: self.save_jsonl,
-            suffixes_dict['yml']: self.save_yml,
+            suffixes_dict['yml']: self.save_yaml,
             suffixes_dict['ini']: self.save_ini,
             suffixes_dict['txt']: self.save_txt,
             suffixes_dict['pkl']: self.save_pkl,
@@ -134,7 +134,7 @@ class Saver:
         self.save_txt(obj, path, **kwargs)
         self.stdout(path)
 
-    def save_yml(self, obj: dict, path, **kwargs):
+    def save_yaml(self, obj: dict, path, **kwargs):
         import yaml  # pip install PyYAML
 
         with open(path, 'w') as f:
@@ -635,8 +635,18 @@ class BaseCacher:
     delete_stdout_fmt = 'Delete _id[%s] successful!'
     get_stdout_fmt = 'Get _id[%s] successful!'
 
+    verbose = True
+    max_size = None
+
+    def __init__(self, stdout_method=print, **kwargs):
+        self.__dict__.update(kwargs)
+        self.stdout_method = stdout_method if self.verbose else FakeIo()
+
     def __call__(self, *args, **kwargs):
         return self.cache_one(*args, **kwargs)
+
+    def size(self):
+        raise NotImplemented
 
     def cache_one(self, obj, **kwargs):
         raise NotImplemented
@@ -661,11 +671,9 @@ class BaseCacher:
 
 
 class Cacher(BaseCacher):
-    def __init__(self, saver=None, loader=None, deleter=None, max_size=None):
-        self.saver = saver
-        self.loader = loader
-        self.deleter = deleter
-        self.max_size = max_size
+    saver = None
+    loader = None
+    deleter = None
 
     def cache_one(self, obj, _id=None, **kwargs):
         self.delete_over_range()
@@ -696,15 +704,8 @@ class Cacher(BaseCacher):
 
 
 class MemoryCacher(BaseCacher):
-    def __init__(
-            self, max_size=None,
-            verbose=True, stdout_method=print,
-            **kwargs
-    ):
-        self.__dict__.update(kwargs)
-        self.max_size = max_size
-        self.verbose = verbose
-        self.stdout_method = stdout_method if verbose else FakeIo()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.cache = {}
 
     def cache_one(self, obj, _id=None, **kwargs):
@@ -787,19 +788,15 @@ class MemoryCacher(BaseCacher):
 
 
 class FileCacher(BaseCacher):
-    def __init__(
-            self, cache_dir=None, max_size=None,
-            verbose=True, stdout_method=print,
-            **kwargs
-    ):
-        self.__dict__.update(kwargs)
+    def __init__(self, cache_dir=None, **kwargs):
+        super().__init__(**kwargs)
         mk_dir(cache_dir)
         self.cache_dir = Path(cache_dir)
-        self.max_size = max_size
-        self.verbose = verbose
-        self.stdout_method = stdout_method if verbose else FakeIo()
-        self.saver = Saver(verbose, stdout_method, stdout_fmt=self.cache_stdout_fmt)
-        self.loader = Loader(verbose, stdout_method, stdout_fmt=self.get_stdout_fmt)
+        self.saver = Saver(self.verbose, self.stdout_method, stdout_fmt=self.cache_stdout_fmt)
+        self.loader = Loader(self.verbose, self.stdout_method, stdout_fmt=self.get_stdout_fmt)
+
+    def size(self):
+        return len(list(self.cache_dir.glob('*')))
 
     def get_fn(self, obj=None, _id=None, file_name=None, file_stem=None):
         if _id is not None:
@@ -891,18 +888,20 @@ class FileCacher(BaseCacher):
 
 
 class MongoDBCacher(BaseCacher):
-    def __init__(self, host='127.0.0.1', port=27017, user=None, password=None, database=None, collection=None,
-                 max_size=None, verbose=True, stdout_method=print,
-                 **mongo_kwargs):
+    def __init__(
+            self, host='127.0.0.1', port=27017, user=None, password=None, database=None, collection=None,
+            mongo_kwargs=dict(), **kwargs
+    ):
         from pymongo import MongoClient
+        super().__init__(**kwargs)
 
         self.client = MongoClient(host, port, **mongo_kwargs)
         self.db = self.client[database]
         self.db.authenticate(user, password)
         self.collection = self.db[collection]
-        self.max_size = max_size
-        self.verbose = verbose
-        self.stdout_method = stdout_method if verbose else FakeIo()
+
+    def size(self):
+        return self.collection.count()
 
     def cache_one(self, obj: dict, _id=None, **kwargs):
         self.delete_over_range()
@@ -953,47 +952,81 @@ class MongoDBCacher(BaseCacher):
 
 
 class RedisCacher(BaseCacher):
+    """
+    Usage:
+        cacher = RedisCacher(...)
+        _id = cacher.cache_one(data, _id)     # if `_id` not set, will set timestamp as `_id`
+        data = cacher.get_one(_id)
+    """
+
     def __init__(
             self, host='127.0.0.1', port=6379, db=0,
-            max_size=None, verbose=True, stdout_method=print,
-            **redis_kwargs
+            redis_kwargs=dict(), **kwargs
     ) -> None:
+        super().__init__(**kwargs)
+
         import redis
 
         self.client = redis.Redis(host=host, port=port, db=db, **redis_kwargs)
-        self.max_size = max_size
-        self.verbose = verbose
-        self.stdout_method = stdout_method if verbose else FakeIo()
 
-    def cache_one(self, obj: dict, _id=None, **kwargs):
-        self.delete_over_range()
+    def size(self):
+        return self.client.dbsize()
 
-        s = int(time.time())
+    def cache_one(self, obj: dict, _id=None, apply_sorted_set=False, **kwargs):
+        """
+        Usage:
+            # if `_id` not set, will set timestamp as `_id`
+            >>> RedisCacher().cache_one(obj, _id)
+        """
+        self.delete_over_range(apply_sorted_set=apply_sorted_set, **kwargs)
+
         if _id is None:
-            _id = s
+            _id = int(time.time())
 
-        self.client.hmset(_id, obj)
+        self.client.hset(_id, mapping=obj)
+        if apply_sorted_set:
+            self.cache_sorted_set(_id, **kwargs)
         self.stdout_method(self.cache_stdout_fmt % _id)
         return _id
 
-    def cache_batch(self, objs, _ids=None, **kwargs):
-        self.delete_over_range(len(objs))
-        s = int(time.time())
-        _ids = _ids or [f'{s}_{i}' for i in range(len(objs))]
+    def cache_sorted_set(self, _id, sorted_key=None, sorted_value=None, **kwargs):
+        self.client.zadd(sorted_key, {_id: sorted_value})
+        # get query id
+        # ids = self.client.zrevrangebyscore(
+        #     sorted_key,
+        #     max=f"({max_value}",
+        #     min="-inf",
+        #     start=0,
+        #     num=1,
+        #     withscores=True
+        # )
 
-        for _id, obj in zip(_ids, objs):
-            obj.setdefault('update_time', s)
-            self.client.hmset(_id, obj)
-            self.stdout_method(self.cache_stdout_fmt % _id)
+    def cache_batch(self, objs, _ids=None, apply_sorted_set=False, sorted_keys=None, sorted_values=None, **kwargs):
+        # self.delete_over_range(len(objs), **kwargs)
+        s = int(time.time())
+        _ids = _ids or [f'{s}:{i}' for i in range(len(objs))]
+        sorted_keys = [sorted_keys for i in range(len(objs))] if isinstance(sorted_keys, list) else sorted_keys
+        sorted_values = [sorted_values for i in range(len(objs))] if isinstance(sorted_values, list) else sorted_values
+
+        for i in range(len(objs)):
+            self.cache_one(objs[i], _ids[i], apply_sorted_set=apply_sorted_set, sorted_key=sorted_keys[i], sorted_value=sorted_values[i], **kwargs)
 
         return _ids
 
-    def delete_over_range(self, batch_size=1, **kwargs):
+    def delete_over_range(self, num=1, apply_sorted_set=False, sorted_key=None, **kwargs):
         if not self.max_size:
             return
 
-        if self.client.dbsize() > self.max_size - batch_size:
-            raise NotImplementedError
+        size = self.size()
+        while size > self.max_size - num:
+            delete_size = size - (self.max_size - num)
+            if apply_sorted_set:
+                _ids = self.client.zrevrange(sorted_key, 0, delete_size - 1)
+            else:
+                raise NotImplementedError
+            self.delete_batch(_ids)
+            if apply_sorted_set:
+                self.client.zrem(sorted_key, *_ids)
 
     def get_one(self, _id=None, **kwargs):
         if _id is None:
@@ -1003,8 +1036,8 @@ class RedisCacher(BaseCacher):
             return {}
 
         _type = self.client.type(_id)
-        if _type == b'set':
-            _id = str(_id).replace('.', ':')
+        # if _type == b'set':
+        #     _id = str(_id).replace('.', ':')
         return self.client.hgetall(_id)
 
     def get_batch(self, _ids=None, size=None, **kwargs):
@@ -1025,6 +1058,16 @@ class RedisCacher(BaseCacher):
         self.client.delete(*_ids)
 
 
+class RedisClusterCacher(RedisCacher):
+    def __init__(self, redis_kwargs=dict(), **kwargs):
+        super(RedisCacher, self).__init__(**kwargs)
+
+        from redis.cluster import RedisCluster, ClusterNode  # require redis>=4.2.0
+        if 'startup_nodes' in redis_kwargs and isinstance(redis_kwargs['startup_nodes'][0], dict):
+            redis_kwargs['startup_nodes'] = [ClusterNode(**node) for node in redis_kwargs['startup_nodes']]
+        self.client = RedisCluster(**redis_kwargs)
+
+
 class ESCacher(BaseCacher):
     """todo"""
 
@@ -1042,7 +1085,7 @@ class MySqlCacher(BaseCacher):
     stdout_method = print
 
     def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
+        super().__init__(**kwargs)
 
         _escape_table = [chr(x) for x in range(128)]
         _escape_table[0] = "\\0"
@@ -1053,8 +1096,6 @@ class MySqlCacher(BaseCacher):
         _escape_table[ord('"')] = '\\"'
         _escape_table[ord("'")] = "\\'"
         self.escape_table = _escape_table
-
-        self.stdout_method = self.stdout_method if self.verbose else FakeIo()
 
     @property
     def connection(self):
@@ -1068,6 +1109,11 @@ class MySqlCacher(BaseCacher):
             database=self.database,
             **self.conn_kwargs
         )
+
+    def size(self):
+        r = self.get_one(return_keys=('COUNT(*) as total_size',))
+        total_size = r['total_size']
+        return total_size
 
     def cache_one(self, obj: dict, allow_duplicates=True, pri_key='id', **kwargs):
         if allow_duplicates or not kwargs:
@@ -1184,18 +1230,19 @@ class MySqlCacher(BaseCacher):
         return last_id
 
     def make_query_sql(self, size=None, return_keys=(), additional_sql='', **kwargs):
-        where_conditions = self.make_where_condition(kwargs)
-        where_conditions = ' and '.join(where_conditions)
         if not return_keys:
             return_keys = ('*',)
         return_keys = ', '.join(return_keys)
-        if where_conditions or additional_sql:
-            sql = f"select {return_keys} from `{self.table}` where {where_conditions} {additional_sql}"
-        else:
-            sql = f"select {return_keys} from `{self.table}`"
 
-        if size:
-            sql += f' limit {size}'
+        where_conditions = self.make_where_condition(kwargs)
+        where_conditions = ' and '.join(where_conditions)
+
+        if where_conditions:
+            where_conditions = f"where {where_conditions}"
+
+        size_sql = f' limit {size}' if size else ''
+
+        sql = f"select {return_keys} from `{self.table}` {where_conditions} {additional_sql} {size_sql}"
 
         return sql
 
@@ -1230,7 +1277,7 @@ class MySqlCacher(BaseCacher):
                 data = {}
 
         if convert_to_json:
-            self.convert_to_json(data)
+            data = self.convert_to_json(data)
 
         return data
 
@@ -1299,10 +1346,11 @@ class SqliteCacher(MySqlCacher):
 
 
 class MilvusCacher(BaseCacher):
-    def __init__(self, collection_name=None, **kwargs):
+    def __init__(self, collection_name=None, milvus_kwargs=dict(), **kwargs):
+        super().__init__(**kwargs)
         from pymilvus import MilvusClient  # pip install pymilvus
 
-        self.client = MilvusClient(**kwargs)
+        self.client = MilvusClient(**milvus_kwargs)
         self.collection_name = collection_name
 
     def make_example_data(self):

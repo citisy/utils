@@ -917,8 +917,12 @@ class Converter:
                     or all(len(o) == len(data[0]) for o in data)
             ):
                 try:
-                    return torch.tensor(data).to(device)
-                except:
+                    if isinstance(data[0], torch.Tensor):
+                        return torch.stack(data, dim=0).to(device)
+                    else:
+                        return torch.tensor(data).to(device)
+                except Exception as e:
+                    # warnings.warn(f'{type(data)} of data can not be forced to torch.Tensor. Cause: {e}')
                     return data
             else:
                 return type(data)(cls.force_to_tensors(v, device) for v in data)
