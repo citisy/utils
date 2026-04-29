@@ -151,7 +151,7 @@ class ConfigObjParse:
         return ret.get('', {})
 
     @staticmethod
-    def merge_dict(d1: dict, d2: dict, depth=None, inplace=False) -> dict:
+    def merge_dict(d1: dict, d2: dict, depth=None) -> dict:
         """merge values from d1 and d2
         if had same key, d2 will cover d1
 
@@ -172,6 +172,7 @@ class ConfigObjParse:
             if depth and cur_depth > depth:
                 return new_dic
 
+            cur_dic = {**cur_dic}  # copy, don't change origin
             for k, v1 in new_dic.items():
                 if k not in cur_dic:
                     pass
@@ -190,10 +191,13 @@ class ConfigObjParse:
 
             return cur_dic
 
-        if inplace:
-            return cur(d1, d2)
-        else:
-            return cur(copy.deepcopy(d1), copy.deepcopy(d2))
+        if not d2:
+            return d1
+
+        if not d1:
+            return d2
+
+        return cur(d1, d2)
 
     @classmethod
     def parse_config_obj_example(cls, config_path, parser) -> dict:

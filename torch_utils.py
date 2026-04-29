@@ -244,9 +244,25 @@ class ModuleManager:
     def freeze_module(module: nn.Module, allow_train=False):
         module.requires_grad_(False)
         if not allow_train:
-            # module only be allowed to eval, does not change to train mode anymore
-            module.eval()
-            module.train = lambda self, mode=True: self
+            def wrap_train(layer: nn.Module):
+                ori_train = layer.train
+                layer.training = False
+
+                def train(mode=True):
+                    # module only be allowed to eval, does not change to train mode anymore
+                    ori_train(mode)
+                    layer.training = False
+                    return layer
+
+                layer.train = train
+
+            def cur_train(module):
+                for m in module.children():
+                    wrap_train(m)
+                    cur_train(m)
+
+            wrap_train(module)
+            cur_train(module)
 
     @staticmethod
     def quantized_by_pytorch(module: nn.Module, trace_func=None, backend='fbgemm'):
@@ -283,7 +299,7 @@ class ModuleManager:
         return obj
 
     @staticmethod
-    def assign_device_run(module: nn.Module, call_func, device, *args, force_effect_module=True, **kwargs):
+    def assign_device_run(module: nn.Module, call_func, device, *args, force_effect_module=True, restore_outputs=False, restore_device=None, **kwargs):
         """let module run in the assigned device, different to `torch.amp.autocast(device)`"""
         if force_effect_module:
             module.to(device)
@@ -291,10 +307,19 @@ class ModuleManager:
         args = [obj.to(device) if isinstance(obj, torch.Tensor) else obj for obj in args]
         kwargs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in kwargs.items()}
 
-        return call_func(*args, **kwargs)
+        obj = call_func(*args, **kwargs)
+        if restore_outputs:
+            if isinstance(obj, torch.Tensor):
+                return obj.to(restore_device)
+            elif isinstance(obj, tuple):
+                return tuple(o.to(restore_device) if isinstance(o, torch.Tensor) else o for o in obj)
+            else:
+                return obj
+        else:
+            return obj
 
     @staticmethod
-    def assign_dtype_run(module: nn.Module, call_func, dtype, *args, force_effect_module=True, **kwargs):
+    def assign_dtype_run(module: nn.Module, call_func, dtype, *args, force_effect_module=True, restore_outputs=False, restore_dtype=None, **kwargs):
         """let module run in the assigned dtype, different to `torch.amp.autocast(..., dtype)`"""
         if force_effect_module:
             module.to(dtype)
@@ -303,7 +328,16 @@ class ModuleManager:
         args = [obj.to(dtype) if check(obj) else obj for obj in args]
         kwargs = {k: v.to(dtype) if check(v) else v for k, v in kwargs.items()}
 
-        return call_func(*args, **kwargs)
+        obj = call_func(*args, **kwargs)
+        if restore_outputs:
+            if check(obj):
+                return obj.to(restore_dtype)
+            elif isinstance(obj, tuple):
+                return tuple(o.to(restore_dtype) if check(o) else o for o in obj)
+            else:
+                return obj
+        else:
+            return obj
 
     @staticmethod
     def single_batch_run(module: nn.Module, call_func, *args, **kwargs):
