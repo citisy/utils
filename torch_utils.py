@@ -89,7 +89,7 @@ class ModuleInfo:
         profiles = []
 
         def cur(current_m, dep, prev_name=''):
-            for name, m in current_m._modules.items():
+            for name, m in current_m.named_children():
                 if m is None:
                     continue
                 if dep <= 1 or len(m._modules) == 0:
@@ -240,29 +240,41 @@ class ModuleManager:
         except AssertionError as e:
             print(e)
 
-    @staticmethod
-    def freeze_module(module: nn.Module, allow_train=False):
+    @classmethod
+    def freeze_module(cls, module: nn.Module, allow_train=False, only_submodules=False, **apply_not_freeze_kwargs):
         module.requires_grad_(False)
         if not allow_train:
-            def wrap_train(layer: nn.Module):
-                ori_train = layer.train
-                layer.training = False
-
-                def train(mode=True):
-                    # module only be allowed to eval, does not change to train mode anymore
-                    ori_train(mode)
-                    layer.training = False
-                    return layer
-
-                layer.train = train
-
             def cur_train(module):
                 for m in module.children():
-                    wrap_train(m)
+                    cls.freeze_train(m)
                     cur_train(m)
 
-            wrap_train(module)
+            cls.freeze_train(module)
             cur_train(module)
+
+        def not_freeze(m):
+            for p in m.parameters(recurse=False):
+                p.requires_grad_(True)
+            if hasattr(m, 'ori_train'):
+                m.train = m.ori_train
+
+        cls.apply(module, not_freeze, **apply_not_freeze_kwargs)
+        if not only_submodules:
+            not_freeze(module)
+
+    @staticmethod
+    def freeze_train(module: nn.Module):
+        ori_train = module.train
+        module.training = False
+
+        def train(mode=True):
+            # module only be allowed to eval, does not change to train mode anymore
+            ori_train(mode)
+            module.training = False
+            return module
+
+        module.ori_train = ori_train
+        module.train = train
 
     @staticmethod
     def quantized_by_pytorch(module: nn.Module, trace_func=None, backend='fbgemm'):
@@ -424,7 +436,7 @@ class ModuleManager:
                 unexpected_modules.append(m)
 
         def cur(current_m):
-            for name, m in current_m._modules.items():
+            for name, m in current_m.named_children():
                 if m is None:
                     continue
 
@@ -437,13 +449,13 @@ class ModuleManager:
                 if len(m._modules) != 0:
                     cur(m)
 
+        unexpected_modules = []
+
         if hasattr(module, 'initialize_layers'):
             module.initialize_layers()
-            return
-
-        unexpected_modules = []
-        init(module)
-        cur(module)
+        else:
+            init(module)
+            cur(module)
 
         if strict and unexpected_modules:
             raise ValueError(f"Initialize layers has unexpected modules: {unexpected_modules}")
@@ -492,10 +504,21 @@ class ModuleManager:
                 if include is empty, find all the module not in exclude set
                 if include is not empty, find all the module in include set, and then filter the module in the exclude set
             is_last_module:
-                True to only check the last module
+                True to only check the last module, only work while input include is a string
+                example:
+                    module_name='a.b.c', include=['b']
+                    -> if True, don't retrun this module
+                    -> if False, retrun this module
+
+                    module_name='a.b.c', include=[b]
+                    -> retrun this module anyway
             is_return_last_module:
                 True to return the module has found.
                 Flase to return the parent of the module has found
+                example:
+                    module_name='a.b.c'
+                    -> if True, return module_name='a.b.c'
+                    -> if False, return module_name='a.b'
         Returns:
             [[finded_module, name, full_name]]
 
@@ -506,7 +529,7 @@ class ModuleManager:
         """
 
         def cur(current_m: nn.Module, prev_name=''):
-            for name, m in current_m._modules.items():
+            for name, m in current_m.named_children():
                 if m is None:
                     continue
 
@@ -532,21 +555,28 @@ class ModuleManager:
         def is_find(name, m):
             flag = False
             for k in include:
-                if is_last_module:
-                    if (isinstance(k, str) and name.endswith(k)) or (not isinstance(k, str) and isinstance(m, k)):
-                        flag = True
+                flag = flag or check(name, m, k)
 
-                else:
-                    if (isinstance(k, str) and k in name) or (not isinstance(k, str) and isinstance(m, k)):
-                        flag = True
-
+            r_flag = False
             for k in exclude:
-                if (isinstance(k, str) and k in name) or (not isinstance(k, str) and isinstance(m, k)):
-                    flag = False
-                elif not include:
-                    flag = True
+                r_flag = r_flag or check(name, m, k)
+
+            flag = not r_flag and (flag or (exclude and not include))
 
             return flag
+
+        def check(name, m, k):
+            if isinstance(k, str):
+                if is_last_module:
+                    if name.endswith(k):
+                        return True
+                else:
+                    if k in name:
+                        return True
+            else:
+                if isinstance(m, k):
+                    return True
+            return False
 
         r = []
         if key is not None:
@@ -951,7 +981,7 @@ class Converter:
                     or all(len(o) == len(data[0]) for o in data)
             ):
                 try:
-                    if isinstance(data[0], torch.Tensor):
+                    if len(data) and isinstance(data[0], torch.Tensor):
                         return torch.stack(data, dim=0).to(device)
                     else:
                         return torch.tensor(data).to(device)
