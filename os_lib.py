@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Iterable, List
 from zipfile import ZipFile
+from PIL import Image
 
 try:
     import cv2  # pip install opencv-python-headless
@@ -216,6 +217,13 @@ class Saver:
             wav_file.setsampwidth(2)
             wav_file.setframerate(sample_rate)
             wav_file.writeframes(obj.tobytes())
+        self.stdout(path)
+
+    def save_audio_from_torchaudio(self, obj: 'torch.Tensor', path, sample_rate=16000, **kwargs):
+        import torchaudio
+
+        torchaudio.save(obj, path, sample_rate, **kwargs)
+        self.stdout(path)
 
     def save_npy(self, obj: np.ndarray, path, **kwargs):
         np.save(path, obj, **kwargs)
@@ -435,6 +443,9 @@ class Loader:
         self.stdout(path)
         return img
 
+    def load_img_from_pil(self, path, **kwargs):
+        return Image.open(path, **kwargs)
+
     def load_jpeg(self, path, **kwargs) -> np.ndarray:
         # apt update
         # apt install libturbojpeg libturbojpeg-dev
@@ -494,6 +505,12 @@ class Loader:
         frames = ar.get_batch(pts)
         audio = frames.asnumpy()
         return audio, ar.sample_rate
+
+    def load_audio_from_librosa(self, path, sr=None, **kwargs):
+        import librosa
+        audio, sr = librosa.load(path, sr=sr, **kwargs)
+        self.stdout(path)
+        return audio, sr
 
     def load_video_audio_from_torchvision(self, path, **kwargs):
         import torchvision

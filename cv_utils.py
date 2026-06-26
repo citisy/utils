@@ -217,6 +217,18 @@ def detect_continuous_areas(image, x_min_interval=20, y_min_interval=20, min_len
     return bboxes
 
 
+class Box:
+    @staticmethod
+    def max_contour(bboxes):
+        return np.concatenate([np.min(bboxes[:, :2], axis=0), np.max(bboxes[:, 2:], axis=0)])
+
+    @staticmethod
+    def min_contour(bboxes):
+        bbox = np.concatenate([np.max(bboxes[:, :2], axis=0), np.min(bboxes[:, 2:], axis=0)])
+        assert bbox[0] < bbox[2] and bbox[1] < bbox[3], 'bbox is invalid'
+        return bbox
+
+
 class MaskBox:
     """Some definition:
     mask: grey image
@@ -263,7 +275,6 @@ class MaskBox:
         else:
             masks = np.zeros((0, label_mask.shape[0], label_mask.shape[1]), dtype=label_mask.dtype)
         return masks
-
 
     @staticmethod
     def label_mask_to_bboxes(label_mask, ignore_class=(), min_area=400, convert_func=None):

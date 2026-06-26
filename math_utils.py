@@ -146,15 +146,22 @@ def order_sort_2D(x, key=None, **kwargs):
     return x[arg]
 
 
-def transpose(x):
+def transpose(x) -> List[list]:
     """transpose the list, same behaviour to `np.transpose()`
     Args:
         x (List[list]): 2-D list
 
-    Usage:
-
     """
     return list(zip(*x))
+
+
+def flatten(x) -> list:
+    """flatten the list, same behaviour to `np.flatten()`
+    Args:
+        x (List[list]): 2-D list
+
+    """
+    return [item for sublist in x for item in sublist]
 
 
 def make_divisible(v: float, divisor: int, min_value=None) -> int:

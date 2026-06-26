@@ -271,21 +271,37 @@ class DataConvert:
 
 class TypeFmtConvert:
     @staticmethod
-    def list_dict_to_dict_list(obj: List[dict], new_obj={}, ignore_keys=(), keep_keys=None) -> Dict[str, list]:
-        """[{k1:v11, k2:v12}, {k1:v21, k2:v21}] -> {k1:[v11, v21], k2:[v12, v22]}"""
+    def list_dict_to_dict_list(obj: List[dict], new_obj=None, ignore_keys=(), keep_keys=None, keep_dims=False) -> Dict[str, list]:
+        """
+        keep_dims:
+            False -> [{k1:v11, k2:v12}, {k1:v21, k2:v21}] -> {k1:[v11, v21], k2:[v12, v22]}
+            True -> [{k1:[v11], k2:[v12]}, {k1:[v21], k2:[v21]}] -> {k1:[v11, v21], k2:[v12, v22]}
+        """
+        if new_obj is None:
+            new_obj = {}
         for d in obj:
             for k, v in d.items():
                 if k in ignore_keys:
                     continue
                 if keep_keys and k not in keep_keys:
                     continue
-                new_obj.setdefault(k, []).extend(v)
+                t = new_obj.setdefault(k, [])
+                if keep_dims:
+                    t.extend(v)
+                else:
+                    t.append(v)
 
         return new_obj
 
     @staticmethod
-    def dict_list_to_list_dict(obj: Dict[str, list], new_obj=[], ignore_keys=(), keep_keys=None) -> List[dict]:
-        """{k1:[v11, v21], k2:[v12, v22]} -> [{k1:v11, k2:v12}, {k1:v21, k2:v22}]"""
+    def dict_list_to_list_dict(obj: Dict[str, list], new_obj=None, ignore_keys=(), keep_keys=None, keep_dims=False) -> List[dict]:
+        """
+        keep_dims:
+            False -> {k1:[v11, v21], k2:[v12, v22]} -> [{k1:v11, k2:v12}, {k1:v21, k2:v22}]
+            True -> {k1:[v11, v21], k2:[v12, v22]} -> [{k1:[v11], k2:[v12]}, {k1:[v21], k2:[v22]}]
+        """
+        if new_obj is None:
+            new_obj = []
         for k, v in obj.items():
             if k in ignore_keys:
                 continue
@@ -294,7 +310,10 @@ class TypeFmtConvert:
             for i in range(len(v)):
                 if i >= len(new_obj):
                     new_obj.append({})
-                new_obj[i][k] = v[i]
+                if keep_dims:
+                    new_obj[i][k] = [v[i]]
+                else:
+                    new_obj[i][k] = v[i]
 
         return new_obj
 
