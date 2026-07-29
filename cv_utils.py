@@ -6,12 +6,12 @@ from . import math_utils
 
 class CoordinateConvert:
     @staticmethod
-    def _call(bbox, wh, blow_up, convert_func):
-        tmp_bbox = np.array(bbox)
+    def _call(bboxes, wh, blow_up, convert_func):
+        tmp_bbox = np.array(bboxes)
         flag = len(tmp_bbox.shape) == 1
 
-        bbox = np.array(bbox).reshape((-1, 4))
-        convert_bbox = np.zeros_like(bbox)
+        bboxes = np.array(bboxes).reshape((-1, 4))
+        convert_bbox = np.zeros_like(bboxes)
 
         if wh is None:
             wh = (1, 1)
@@ -23,7 +23,7 @@ class CoordinateConvert:
 
         wh = np.r_[wh, wh]
 
-        convert_bbox = convert_func(bbox, convert_bbox) * wh
+        convert_bbox = convert_func(bboxes, convert_bbox) * wh
 
         if flag:
             convert_bbox = convert_bbox[0]
@@ -31,16 +31,22 @@ class CoordinateConvert:
         return convert_bbox
 
     @classmethod
-    def mid_xywh2top_xyxy(cls, bbox, wh=None, blow_up=True):
-        """中心点xywh转换成顶点xyxy
+    def center_xywh2top_xyxy(cls, bboxes, wh=None, blow_up=True):
+        """center xywh convert to top xyxy
 
         Args:
-            bbox: xywh, xy, middle coordinate, wh, width and height of object
-            wh(tuple): 原始图片宽高，如果传入，则根据blow_up进行转换
-            blow_up(bool): 是否放大
+            bboxes(np.ndarray): 2-d ndarray of xywh, where
+                xy -> center coordinate of points
+                wh -> width and height of objects
+            wh(tuple): width and height of ori image
+            blow_up(bool):
+                True -> xywh * wh, used to convert ref to abs
+                False -> xywh / wh, used to convert abs to ref
 
         Returns:
-            xyxy(tuple): 左上右下顶点xy坐标
+            xyxy(np.ndarray):
+                xy -> left top coordinate of points
+                xy -> right down coordinate of points
         """
 
         def convert_func(bbox, convert_bbox):
@@ -48,19 +54,23 @@ class CoordinateConvert:
             convert_bbox[:, 2:4] = bbox[:, 0:2] + bbox[:, 2:4] / 2
             return convert_bbox
 
-        return cls._call(bbox, wh, blow_up, convert_func)
+        return cls._call(bboxes, wh, blow_up, convert_func)
 
     @classmethod
-    def top_xywh2top_xyxy(cls, bbox, wh=None, blow_up=True):
-        """顶点xywh转换成顶点xyxy
+    def top_xywh2top_xyxy(cls, bboxes, wh=None, blow_up=True):
+        """top xywh convert to top xyxy
 
         Args:
-            bbox: xywh, xy, left top coordinate, wh, width and height of object
-            wh(tuple): 原始图片宽高，如果传入，则根据blow_up进行转换
-            blow_up(bool): 是否放大
+            bboxes(np.ndarray): 2-d ndarray of xywh, where
+                xy -> left top coordinate of points
+                wh -> width and height of objects
+            wh(tuple): width and height of ori image
+            blow_up(bool):
+                True -> xywh * wh, used to convert ref to abs
+                False -> xywh / wh, used to convert abs to ref
 
         Returns:
-            xyxy(tuple): 左上右下顶点xy坐标
+            xyxy(np.ndarray): top left and right down coordinate of points
         """
 
         def convert_func(bbox, convert_bbox):
@@ -68,19 +78,25 @@ class CoordinateConvert:
             convert_bbox[:, 2:4] = bbox[:, 0:2] + bbox[:, 2:4]
             return convert_bbox
 
-        return cls._call(bbox, wh, blow_up, convert_func)
+        return cls._call(bboxes, wh, blow_up, convert_func)
 
     @classmethod
-    def top_xywh2mid_xywh(cls, bbox, wh=None, blow_up=True):
-        """顶点xywh转中心点xywh
+    def top_xywh2center_xywh(cls, bboxes, wh=None, blow_up=True):
+        """top xywh convert to center xywh
 
         Args:
-            bbox: xywh, xy, left top coordinate, wh, width and height of object
-            wh(tuple): 原始图片宽高，如果传入，则根据blow_up进行转换
-            blow_up(bool): 是否放大
+            bboxes(np.ndarray): 2-d ndarray of xywh, where
+                xy -> left top coordinate of points
+                wh -> width and height of objects
+            wh(tuple): width and height of ori image
+            blow_up(bool):
+                True -> xywh * wh, used to convert ref to abs
+                False -> xywh / wh, used to convert abs to ref
 
         Returns:
-            xywh(tuple): xy -> 中心点坐标, wh -> 目标宽高
+            xywh(np.ndarray):
+                xy -> center coordinate of points
+                wh -> width and height of objects
         """
 
         def convert_func(bbox, convert_bbox):
@@ -88,19 +104,25 @@ class CoordinateConvert:
             convert_bbox[:, 2:4] = bbox[:, 2:4]
             return convert_bbox
 
-        return cls._call(bbox, wh, blow_up, convert_func)
+        return cls._call(bboxes, wh, blow_up, convert_func)
 
     @classmethod
-    def top_xyxy2top_xywh(cls, bbox, wh=None, blow_up=True):
-        """顶点xyxy转顶点xywh
+    def top_xyxy2top_xywh(cls, bboxes, wh=None, blow_up=True):
+        """top xyxy convert to top xywh
 
         Args:
-            bbox: xyxy, left top and right down
-            wh(tuple): 原始图片宽高，如果传入，则根据blow_up进行转换
-            blow_up(bool): 是否放大
+            bboxes(np.ndarray): 2-d ndarray of xyxy, where
+            wh(tuple): width and height of ori image
+                xy -> left top coordinate of points
+                xy -> right down coordinate of points
+            blow_up(bool):
+                True -> xywh * wh, used to convert ref to abs
+                False -> xywh / wh, used to convert abs to ref
 
         Returns:
-            xywh(tuple): xy -> 左上顶点坐标, wh -> 目标宽高
+            xywh(tuple):
+                xy -> left top coordinate of points
+                wh -> width and height of objects
         """
 
         def convert_func(bbox, convert_bbox):
@@ -108,19 +130,25 @@ class CoordinateConvert:
             convert_bbox[:, 0:2] = bbox[:, 0:2]
             return convert_bbox
 
-        return cls._call(bbox, wh, blow_up, convert_func)
+        return cls._call(bboxes, wh, blow_up, convert_func)
 
     @classmethod
-    def top_xyxy2mid_xywh(cls, bbox, wh=None, blow_up=True):
-        """顶点xyxy转换成中心点xywh
+    def top_xyxy2center_xywh(cls, bbox, wh=None, blow_up=True):
+        """top xyxy convert to center top xywh
 
         Args:
             bbox: xyxy, left top and right down
-            wh(tuple): 原始图片宽高，如果传入，则根据blow_up进行转换
-            blow_up(bool): 是否放大
+            wh(tuple): width and height of ori image
+                xy -> left top coordinate of points
+                xy -> right down coordinate of points
+            blow_up(bool):
+                True -> xywh * wh, used to convert ref to abs
+                False -> xywh / wh, used to convert abs to ref
 
         Returns:
-            xywh(tuple): xy -> 中心点点坐标, wh -> 目标宽高
+            xywh(tuple):
+                xy -> center coordinate of points
+                wh -> width and height of objects
         """
 
         def convert_func(bbox, convert_bbox):

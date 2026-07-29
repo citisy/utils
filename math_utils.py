@@ -219,8 +219,8 @@ def detect_continuous_sequences(x, min_interval=0, min_len=0):
 
     Args:
         x: 1-D array, dtype of bool
-        min_interval(int): num of points less than tol will be treated as one sequences
-        min_len(int): filter sequences whose length is less than min_len
+        min_interval(float): num of points less than tol will be treated as one sequences
+        min_len(float): filter sequences whose length is less than min_len
 
     Returns:
         seq: 2-D array, (m, 2)
