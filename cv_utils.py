@@ -159,34 +159,34 @@ class CoordinateConvert:
         return cls._call(bbox, wh, blow_up, convert_func)
 
     @staticmethod
-    def rect2box(rects) -> np.ndarray:
-        """rects(-1, 4, 2) convert to boxes(-1, 4)"""
-        rects = np.array(rects)
+    def segmentations2bboxes(segmentations) -> np.ndarray:
+        """segmentations(-1, 4, 2) convert to bboxes(-1, 4)"""
+        segmentations = np.array(segmentations)
 
-        if rects.size == 0:
+        if segmentations.size == 0:
             return np.zeros((0, 4))
 
-        x1 = np.min(rects[:, :, 0], axis=1)
-        y1 = np.min(rects[:, :, 1], axis=1)
-        x2 = np.max(rects[:, :, 0], axis=1)
-        y2 = np.max(rects[:, :, 1], axis=1)
-        boxes = np.c_[x1, y1, x2, y2]
-        return boxes
+        x1 = np.min(segmentations[:, :, 0], axis=1)
+        y1 = np.min(segmentations[:, :, 1], axis=1)
+        x2 = np.max(segmentations[:, :, 0], axis=1)
+        y2 = np.max(segmentations[:, :, 1], axis=1)
+        bboxes = np.c_[x1, y1, x2, y2]
+        return bboxes
 
     @staticmethod
-    def box2rect(boxes) -> np.ndarray:
-        """boxes(-1, 4) convert to rects(-1, 4, 2)"""
-        boxes = np.array(boxes)
+    def bboxes2segmentations(bboxes) -> np.ndarray:
+        """bboxes(-1, 4) convert to segmentations(-1, 4, 2)"""
+        bboxes = np.array(bboxes)
 
-        if boxes.size == 0:
+        if bboxes.size == 0:
             return np.zeros((0, 0, 2))
 
-        rects = np.zeros((len(boxes), 4, 2))
-        rects[:, 0] = boxes[:, :2]
-        rects[:, 1] = boxes[:, (2, 1)]
-        rects[:, 2] = boxes[:, 2:]
-        rects[:, 3] = boxes[:, (0, 3)]
-        return rects
+        segmentations = np.zeros((len(bboxes), 4, 2))
+        segmentations[:, 0] = bboxes[:, :2]
+        segmentations[:, 1] = bboxes[:, (2, 1)]
+        segmentations[:, 2] = bboxes[:, 2:]
+        segmentations[:, 3] = bboxes[:, (0, 3)]
+        return segmentations
 
 
 def detect_continuous_lines(image, min_interval=0, min_len=0, binary_thres=200, axis=1):
@@ -676,7 +676,7 @@ def lines_to_bboxes(lines, oblique=True):
         rect.append(p[edges])
 
     rect = np.stack(rect)
-    bboxes = CoordinateConvert.rect2box(rect)
+    bboxes = CoordinateConvert.segmentations2bboxes(rect)
 
     return bboxes
 
