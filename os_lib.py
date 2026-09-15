@@ -1402,7 +1402,7 @@ class MilvusCacher(BaseCacher):
         Usage:
             >>> MilvusCacher().get_batch(np.zeros(128))
             >>> MilvusCacher().get_one(filter='id==1', is_search=False)
-            >>> MilvusCacher().get_one(ids=[1], is_search=False)
+            >>> MilvusCacher().get_one(ids=[1], is_search=False)    # only support ids
 
         """
         kwargs.setdefault('collection_name', self.collection_name)

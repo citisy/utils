@@ -1,6 +1,7 @@
 """utils for operating the tritonclient"""
 import json
 import re
+import socket
 from typing import Optional, Any
 
 import numpy as np
@@ -10,7 +11,7 @@ import tritonclient.grpc
 import tritonclient.http
 from tritonclient.utils import InferenceServerException
 
-from . import converter, log_utils
+from . import converter, log_utils, os_lib, op_utils
 from functools import partial
 
 # https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/model_configuration.html#datatypes
@@ -26,6 +27,9 @@ datatypes = {
 
 
 class BaseClient:
+    config_path: str = ''
+    headers = {}
+
     def __init__(
             self,
             client: Optional[tritonclient.http.InferenceServerClient | tritonclient.grpc.InferenceServerClient],
@@ -36,6 +40,7 @@ class BaseClient:
         self.logger = log_utils.get_logger(logger)
         self.model_configs = {}
         self.model_versions = {}
+        self.__dict__.update(kwargs)
 
     def init(self):
         raise NotImplementedError()
@@ -54,24 +59,29 @@ class BaseClient:
 
             self.model_versions[name] = version
             if isinstance(self.client, tritonclient.http.InferenceServerClient):
-                self.model_configs[name, version] = self.client.get_model_config(name, version)
+                self.model_configs[name, version] = self.client.get_model_config(name, version, headers=self.headers)
             else:
-                self.model_configs[name, version] = self.client.get_model_config(name, version, as_json=True)['config']
+                self.model_configs[name, version] = self.client.get_model_config(name, version, as_json=True, headers=self.headers)['config']
 
         if self.verbose:
             self.logger.info(self.model_configs)
 
-    def load(self, model_name):
+    def load(self, model_name, config_path=''):
         """must work on explicit model
         run tritonserver with `--model-control-mode explicit`"""
-        self.client.load_model(model_name)
+        config = None
+        config_path = self.config_path or config_path
+        if config_path:
+            config = os_lib.loader.load_json(config_path)
+            config = json.dumps(config)
+        self.client.load_model(model_name, config=config, headers=self.headers)
         self.init()
 
     def unload(self, model_name):
         self.client.unload_model(model_name)
         self.init()
 
-    def _get_model_configs(self, model_name, model_version=None):
+    def _get_model_configs(self, model_name, model_version=None, config_path=''):
         model_version = model_version or self.model_versions.get(model_name)
 
         # firstly, try to reinit the model_configs
@@ -84,7 +94,7 @@ class BaseClient:
             # secondly, try to load the model, and then reinit the model_configs
             if (model_name, model_version) not in self.model_configs:
                 self.logger.warning(f'Can not get model configs for {model_name = } and {model_version = }, try to reload the model!')
-                self.load(model_name)
+                self.load(model_name, config_path=config_path)
                 self.init()
 
                 model_version = model_version or self.model_versions.get(model_name)
@@ -106,7 +116,9 @@ class BaseClient:
                 i = np.array([i.encode('utf8')], dtype=np.object_)
 
         elif dtype == 'TYPE_BOOL':
-            if isinstance(i, list):
+            if isinstance(i, np.ndarray):
+                pass
+            elif isinstance(i, list):
                 i = np.array(i)
             else:
                 i = np.array([i])
@@ -159,18 +171,18 @@ class HttpClient(BaseClient):
 
     """
 
-    def __init__(self, url='127.0.0.1:8000', verbose=False, **kwargs):
+    def __init__(self, url='127.0.0.1:8000', verbose=False, client_configs=dict(), **kwargs):
         self.url = url
 
-        client = tritonclient.http.InferenceServerClient(url=url, verbose=False, **kwargs)
+        client = tritonclient.http.InferenceServerClient(url=url, verbose=False, **client_configs)
         super().__init__(client, verbose=verbose, **kwargs)
 
     def init(self):
-        model_info = self.client.get_model_repository_index()
+        model_info = self.client.get_model_repository_index(headers=self.headers)
         self._init(model_info)
 
-    def async_infer(self, *inputs: Any, model_name, model_version=None):
-        model_version, model_config = self._get_model_configs(model_name, model_version)
+    def async_infer(self, *inputs: Any, model_name, model_version=None, config_path='', **infer_kwargs):
+        model_version, model_config = self._get_model_configs(model_name, model_version, config_path=config_path)
 
         _inputs = []
         for cfg, i in zip(model_config['input'], inputs):
@@ -189,19 +201,21 @@ class HttpClient(BaseClient):
             model_name=model_name,
             model_version=model_version,
             inputs=_inputs,
-            outputs=_outputs
+            outputs=_outputs,
+            **infer_kwargs
         )
 
         return async_req
 
+    # @op_utils.Retry(count=3, wait=5).add_try(err_type=socket.gaierror)
     def async_get(self, async_req: tritonclient.http.InferAsyncRequest):
         result = async_req.get_result()
         outputs = self._parse_output(result)
 
         return outputs
 
-    def generate(self, *inputs: Any, model_name, model_version=None):
-        model_version, model_config = self._get_model_configs(model_name, model_version)
+    def generate(self, *inputs: Any, model_name, model_version=None, config_path='', **generate_kwargs):
+        model_version, model_config = self._get_model_configs(model_name, model_version, config_path=config_path)
 
         if model_version:
             model_version = f'/versions/{model_version}'
@@ -215,7 +229,7 @@ class HttpClient(BaseClient):
             _inputs[cfg['name']] = converter.DataConvert.custom_to_constant(i)
 
         _inputs = json.dumps(_inputs, ensure_ascii=False)
-        r = requests.post(url, data=_inputs)
+        r = requests.post(url, data=_inputs, **generate_kwargs)
         if r.status_code != 200:
             raise InferenceServerException(r.text)
         result = r.json()
@@ -225,10 +239,10 @@ class HttpClient(BaseClient):
             outputs[name] = result[name]
         return outputs
 
-    def generate_stream(self, *inputs: Any, model_name, model_version=None):
+    def generate_stream(self, *inputs: Any, model_name, model_version=None, config_path=''):
         """official http triton client do not support generate endpoint called
         see https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2450/user-guide/docs/protocol/extension_generate.html"""
-        model_version, model_config = self._get_model_configs(model_name, model_version)
+        model_version, model_config = self._get_model_configs(model_name, model_version, config_path=config_path)
 
         if model_version:
             model_version = f'/versions/{model_version}'
@@ -259,18 +273,18 @@ class HttpClient(BaseClient):
 
 
 class GrpcClient(BaseClient):
-    def __init__(self, url='127.0.0.1:8001', verbose=False, **kwargs):
+    def __init__(self, url='127.0.0.1:8001', verbose=False, client_configs=dict(), **kwargs):
         self.url = url
 
-        client = tritonclient.grpc.InferenceServerClient(url=url, verbose=False, **kwargs)
+        client = tritonclient.grpc.InferenceServerClient(url=url, verbose=False, **client_configs)
         super().__init__(client, verbose=verbose, **kwargs)
 
     def init(self):
         model_info = self.client.get_model_repository_index(as_json=True)['models']
         self._init(model_info)
 
-    def generate(self, *inputs: Any, model_name, model_version=None, callback=None):
-        model_version, model_config = self._get_model_configs(model_name, model_version)
+    def generate(self, *inputs: Any, model_name, model_version=None, callback=None, config_path=''):
+        model_version, model_config = self._get_model_configs(model_name, model_version, config_path=config_path)
 
         _inputs = []
         for cfg, i in zip(model_config['input'], inputs):

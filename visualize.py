@@ -118,18 +118,21 @@ class ImageVisualize:
         return draw_img
 
     @staticmethod
-    def text(img, text_boxes, texts, scores=None, drop_score=0.5, font_path="utils/excluded/simfang.ttf"):
+    def text(img, text_boxes, texts, colors=None, font_sizes=None, scores=None, drop_score=0.5, font_path="utils/excluded/simfang.ttf"):
         """only text, need text area
         use PIL.Image instead of opencv for better chinese font support
         text_boxes: (n, 4, 2)
         colors: (n, 3) or (n, 1)
         """
+        colors = colors or [get_color_array(0)] * len(text_boxes)
         scores = scores if scores is not None else [1] * len(text_boxes)
         img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        if not isinstance(font_sizes, list):
+            font_sizes = [font_sizes] * len(text_boxes)
 
         draw_image = ImageDraw.Draw(img)
 
-        for idx, (box, txt, score) in enumerate(zip(text_boxes, texts, scores)):
+        for idx, (box, txt, score, color, font_size) in enumerate(zip(text_boxes, texts, scores, colors, font_sizes)):
             if score < drop_score:
                 continue
 
@@ -140,19 +143,21 @@ class ImageVisualize:
             box_height = np.sqrt((box[0][0] - box[3][0]) ** 2 + (box[0][1] - box[3][1]) ** 2)
             box_width = np.sqrt((box[0][0] - box[1][0]) ** 2 + (box[0][1] - box[1][1]) ** 2)
 
+            color = color[::-1]
+
             # draw the text
             if box_height > 2 * box_width:
-                font_size = min(max(int(box_width * 0.9), 10), 10)
+                font_size = font_size or min(max(int(box_width * 0.9), 10), box_height * 0.05)
                 font = ImageFont.truetype(font_path, font_size, encoding="utf-8")
                 cur_x, cur_y = box[0][0] + 3, box[0][1]
 
                 for c in txt:
                     char_size = font.getsize(c) if version.parse(PIL.__version__) < version.parse("9") else font.getbbox(c)
-                    draw_image.text((cur_x, cur_y), c, fill=(0, 0, 0), font=font)
+                    draw_image.text((cur_x, cur_y), c, fill=color, font=font)
                     cur_y += char_size[1]
 
             else:
-                font_size = min(max(int(box_height * 0.8), 10), 10)
+                font_size = font_size or min(max(int(box_height * 0.8), 10), box_width * 0.05)
                 n_font_per_line = max(int(box_width / font_size), 20)
                 _txt = ''
                 for i in range(0, len(txt), n_font_per_line):
@@ -160,7 +165,7 @@ class ImageVisualize:
                 txt = _txt[:-1]
 
                 font = ImageFont.truetype(font_path, font_size, encoding="utf-8")
-                draw_image.text((box[0][0], box[0][1]), txt, fill=(0, 0, 0), font=font)
+                draw_image.text((box[0][0], box[0][1]), txt, fill=color, font=font)
 
         return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
