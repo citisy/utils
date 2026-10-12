@@ -240,6 +240,7 @@ def logger_init(log_dir=None, **custom_config):
                     'filename': f'{log_dir}/info.log',
                     'when': 'W0',
                     'backupCount': 5,
+                    'encoding': 'utf8'
                 },
 
                 # # detail info
@@ -260,6 +261,7 @@ def logger_init(log_dir=None, **custom_config):
                     'filename': f'{log_dir}/error.log',
                     'when': 'W0',
                     'backupCount': 5,
+                    'encoding': 'utf8'
                 },
             },
 

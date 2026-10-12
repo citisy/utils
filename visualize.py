@@ -596,7 +596,7 @@ class Formulae2DVisualize:
             axis_type=NORMAL,
             **draw_kwargs
     ):
-        """plot by method of `contour` module from matplotlib
+        r"""plot by method of `contour` module from matplotlib
 
         Args:
             func:
@@ -652,7 +652,7 @@ class Formulae2DVisualize:
             axis_type=NORMAL,
             **draw_kwargs
     ):
-        """plot by method of `plot_implicit` module from sympy
+        r"""plot by method of `plot_implicit` module from sympy
 
         Args:
             func:
@@ -704,7 +704,7 @@ class Formulae2DVisualize:
             k=1.,
             **draw_kwargs
     ):
-        """plot by method of gradient
+        r"""plot by method of gradient
 
         Args:
             func:
@@ -765,7 +765,7 @@ class Formulae2DVisualize:
             axis_type=NORMAL,
             **draw_kwargs
     ):
-        """plot by method of Marching squares algorithm
+        r"""plot by method of Marching squares algorithm
 
         Args:
             func:
@@ -886,7 +886,7 @@ class Formulae2DVisualize:
             axis_list: iter = None,
             **draw_kwargs
     ):
-        """
+        r"""
 
         Args:
             func:
@@ -953,7 +953,7 @@ class Formulae2DVisualize:
             axis_type=NORMAL,
             **draw_kwargs
     ):
-        """
+        r"""
 
         Args:
             steps:
