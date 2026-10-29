@@ -162,6 +162,8 @@ class RegisterTables:
 
             cls = register_tables.get('k1', 't1')
     """
+    def __init__(self):
+        self.default = {}
 
     def add_register(self, key='', table_name='default'):
         def wrap(func):
