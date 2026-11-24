@@ -3,8 +3,6 @@ import time
 from functools import wraps
 from contextlib import contextmanager
 
-from .os_lib import FakeIo
-
 
 class IgnoreException:
     """
@@ -27,6 +25,7 @@ class IgnoreException:
     """
 
     def __init__(self, verbose=True, stdout_method=print, msg_fmt=None):
+        from .os_lib import FakeIo
         self.stdout_method = stdout_method if verbose else FakeIo()
         self.msg_fmt = msg_fmt or 'Ignore the error occur: {e}'
 
@@ -65,9 +64,6 @@ class IgnoreException:
             return wrap
 
         return wrap2
-
-
-ignore_exception = IgnoreException()
 
 
 class Retry:
@@ -140,9 +136,6 @@ class Retry:
         return wrap2
 
 
-retry = Retry()
-
-
 class RegisterTables:
     """
     Usage:
@@ -162,6 +155,7 @@ class RegisterTables:
 
             cls = register_tables.get('k1', 't1')
     """
+
     def __init__(self):
         self.default = {}
 
@@ -179,8 +173,8 @@ class RegisterTables:
     def get(self, key, default=None, table_name='default'):
         return getattr(self, table_name).get(key, default)
 
+    def traverse(self):
+        return [(table_name, k, v) for table_name, d in self.__dict__.items() for k, v in d.items()]
+
     def __repr__(self):
         return str(self.__dict__)
-
-
-register_tables = RegisterTables()

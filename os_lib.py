@@ -20,6 +20,9 @@ except:
 
 import numpy as np
 import pandas as pd
+from . import op_utils
+
+make_function_fn = op_utils.RegisterTables()
 
 
 def mk_dir(dir_path):
@@ -643,6 +646,7 @@ class Loader:
         self.stdout(path)
 
 
+@make_function_fn.add_register()
 class BaseCacher:
     RANDOM = 0
     OLDEST = 1
@@ -687,6 +691,31 @@ class BaseCacher:
         raise NotImplemented
 
 
+@make_function_fn.add_register()
+class FakeCacher(BaseCacher):
+    def cache_one(self, obj, **kwargs):
+        pass
+
+    def cache_batch(self, objs, **kwargs):
+        pass
+
+    def delete_one(self, **kwargs):
+        pass
+
+    def delete_batch(self, **kwargs):
+        pass
+
+    def delete_over_range(self, **kwargs):
+        pass
+
+    def get_one(self, **kwargs):
+        return {}
+
+    def get_batch(self, **kwargs):
+        return []
+
+
+@make_function_fn.add_register()
 class Cacher(BaseCacher):
     saver = None
     loader = None
@@ -720,6 +749,7 @@ class Cacher(BaseCacher):
         return [self.get_one(_id) for _id in _ids]
 
 
+@make_function_fn.add_register()
 class MemoryCacher(BaseCacher):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -804,6 +834,7 @@ class MemoryCacher(BaseCacher):
         return [self.cache.get(_id) for _id in _ids]
 
 
+@make_function_fn.add_register()
 class FileCacher(BaseCacher):
     def __init__(self, cache_dir=None, **kwargs):
         super().__init__(**kwargs)
@@ -904,6 +935,7 @@ class FileCacher(BaseCacher):
         return [self.loader.auto_load(path) for path in paths]
 
 
+@make_function_fn.add_register()
 class MongoDBCacher(BaseCacher):
     def __init__(
             self, host='127.0.0.1', port=27017, user=None, password=None, database=None, collection=None,
@@ -968,6 +1000,7 @@ class MongoDBCacher(BaseCacher):
             return [self.collection.find_one({'_id': _id}) for _id in _ids]
 
 
+@make_function_fn.add_register()
 class RedisCacher(BaseCacher):
     """
     Usage:
@@ -1075,6 +1108,7 @@ class RedisCacher(BaseCacher):
         self.client.delete(*_ids)
 
 
+@make_function_fn.add_register()
 class RedisClusterCacher(RedisCacher):
     def __init__(self, redis_kwargs=dict(), **kwargs):
         super(RedisCacher, self).__init__(**kwargs)
@@ -1085,10 +1119,12 @@ class RedisClusterCacher(RedisCacher):
         self.client = RedisCluster(**redis_kwargs)
 
 
+@make_function_fn.add_register()
 class ESCacher(BaseCacher):
     """todo"""
 
 
+@make_function_fn.add_register()
 class MySqlCacher(BaseCacher):
     host = '127.0.0.1'
     port = 3306
@@ -1133,6 +1169,19 @@ class MySqlCacher(BaseCacher):
         return total_size
 
     def cache_one(self, obj: dict, allow_duplicates=True, pri_key='id', **kwargs):
+        """
+
+        Args:
+            obj:
+            allow_duplicates:
+                True -> add directly, means that it will have duplicates data with the same pri_key
+                False -> query pri_key first, if exists, update, else add, make sure that no duplicates data with the same pri_key
+            pri_key:
+            **kwargs:
+
+        Returns:
+            pri_key_id
+        """
         if allow_duplicates or not kwargs:
             last_id = self._add(obj, **kwargs)
 
@@ -1171,9 +1220,9 @@ class MySqlCacher(BaseCacher):
                     values += f'{vv},'
                 values = values[:-1]
                 where_conditions.append(f'{k} in ({values})')
+            elif v is None:
+                where_conditions.append(f'{k} is NULL')
             else:
-                if v is None:
-                    continue
                 v = self.std_str_value(v)
                 where_conditions.append(f'{k}={v}')
 
@@ -1333,6 +1382,7 @@ class MySqlCacher(BaseCacher):
             connection.commit()
 
 
+@make_function_fn.add_register()
 class PGSQLCacher(MySqlCacher):
     port = 5432
 
@@ -1351,6 +1401,7 @@ class PGSQLCacher(MySqlCacher):
         return conn
 
 
+@make_function_fn.add_register()
 class SqliteCacher(MySqlCacher):
     @property
     def connection(self):
@@ -1362,6 +1413,7 @@ class SqliteCacher(MySqlCacher):
         )
 
 
+@make_function_fn.add_register()
 class MilvusCacher(BaseCacher):
     def __init__(self, collection_name=None, milvus_kwargs=dict(), **kwargs):
         super().__init__(**kwargs)
